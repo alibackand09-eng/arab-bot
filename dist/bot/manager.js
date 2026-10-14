@@ -8,6 +8,7 @@ const i18n_js_1 = require("./i18n.js");
 const keyboards_js_1 = require("./keyboards.js");
 const gemini_js_1 = require("../services/gemini.js");
 const pdfBook_js_1 = require("../services/pdfBook.js");
+const academySync_js_1 = require("../services/academySync.js");
 class BotManager {
     static instance;
     bot = null;
@@ -36,7 +37,9 @@ class BotManager {
      * Faqat bitta ADMIN_ID ishlatiladi!
      */
     getAdminTelegramUrl(prefilledText) {
-        const adminId = (config_js_1.config.adminId || '8145529224').trim().replace(/^@/, '');
+        const adminId = (config_js_1.config.adminTelegramContact || config_js_1.config.adminId || '8145529224').trim().replace(/^@/, '');
+        if (/^https?:\/\//i.test(adminId))
+            return adminId;
         // Agar raqam bo'lsa (masalan 8145529224) - Telegram chatini to'g'ridan-to'g'ri ochadi
         if (/^\d+$/.test(adminId)) {
             return `tg://user?id=${adminId}`;
@@ -72,6 +75,9 @@ class BotManager {
             this.isRunning = false;
             return;
         }
+        if (!/^\d+$/.test(config_js_1.config.adminId)) {
+            console.warn('⚠️ [Telegram Bot] ADMIN_ID raqamli Telegram ID bo‘lishi kerak; /admin buyrug‘i ishlamaydi.');
+        }
         if (this.isRunning && this.currentToken === activeToken) {
             console.log(`ℹ️ [Telegram Bot] Bot allaqachon ushbu token bilan ishlamoqda.`);
             return;
@@ -94,6 +100,7 @@ class BotManager {
             // Buyruqlarni o'rnatish: Faqat /start
             await this.bot.api.setMyCommands([
                 { command: 'start', description: "Botni qayta ishga tushirish" },
+                { command: 'review', description: "Kurs haqida sharh yuborish" },
             ]).catch(() => { });
             await this.bot.api.setChatMenuButton({
                 menu_button: { type: 'default' },
@@ -107,7 +114,11 @@ class BotManager {
             })
                 .catch((err) => {
                 this.isRunning = false;
-                console.warn(`⚠️ [Telegram Bot] Polling xatosi:`, err?.message || err);
+                const message = err?.message || String(err);
+                if (/409|terminated by other getUpdates request|conflict/i.test(message)) {
+                    console.error('❌ [Telegram Bot] Shu BOT_TOKEN bilan boshqa bot jarayoni ham ishlayapti. Sayt backend va bot service orasida bitta polling nusxasini qoldiring.');
+                }
+                console.warn('⚠️ [Telegram Bot] Polling xatosi:', message);
             });
         }
         catch (err) {
@@ -192,6 +203,24 @@ class BotManager {
             const langKeyboard = await keyboards_js_1.BotKeyboards.getLanguageKeyboard();
             await ctx.reply("Assalomu alaykum! Iltimos, tilni tanlang:\n\nПожалуйста, выберите язык:\n\nPlease choose your language:", { reply_markup: langKeyboard });
         });
+        bot.command('review', async (ctx) => {
+            const telegramId = ctx.from?.id;
+            if (!telegramId)
+                return;
+            if (ctx.chat.type !== 'private') {
+                await ctx.reply('Sharh yuborish uchun botga shaxsiy xabarda /review yuboring.');
+                return;
+            }
+            const session = this.getSession(telegramId);
+            session.state = 'waiting_review_text';
+            const lang = await i18n_js_1.I18nService.getUserLanguage(telegramId);
+            const prompts = {
+                uz: '✍️ Kurs haqidagi fikringizni bitta xabar qilib yuboring. Admin tasdiqlagandan keyin saytda ko‘rinadi. Bekor qilish uchun /cancel yozing.',
+                ru: '✍️ Отправьте одним сообщением отзыв о курсе. Он появится на сайте после одобрения администратора. Для отмены отправьте /cancel.',
+                en: '✍️ Send your course review in one message. It will appear on the website after admin approval. Send /cancel to cancel.',
+            };
+            await ctx.reply(prompts[lang] || prompts.uz);
+        });
         // 2. /admin buyrug'i (Parol so'raydi, so'ngra qulay boshqaruv panelini ochadi)
         bot.command('admin', async (ctx) => {
             const telegramId = ctx.from?.id;
@@ -256,7 +285,7 @@ class BotManager {
             const telegramId = ctx.from.id;
             const lang = await i18n_js_1.I18nService.getUserLanguage(telegramId);
             await ctx.answerCallbackQuery();
-            await this.handlePaymentRequest(ctx, telegramId, lang);
+            await this.handleEnrollmentInfo(ctx, lang);
         });
         // 5. Guruh tanlash callback (Kirish kodi so'rash)
         bot.callbackQuery(/^join_group:(\d+)$/, async (ctx) => {
@@ -288,89 +317,13 @@ class BotManager {
         // 7. Admin panel inline tugmalari
         bot.callbackQuery(/^admin_view:(stats|groups|students|tests|refresh)$/, async (ctx) => {
             const telegramId = ctx.from.id;
-            const action = ctx.match[1];
-            const session = this.getSession(telegramId);
-            if (!this.isUserAdmin(telegramId, session)) {
+            if (!this.isUserAdmin(telegramId)) {
                 await ctx.answerCallbackQuery({ text: '⛔️ Sizda administrator huquqi yo\'q', show_alert: true });
                 return;
             }
             await ctx.answerCallbackQuery();
-            const adminUrl = config_js_1.config.adminPanelUrl || `http://localhost:${config_js_1.config.adminPort}`;
-            const kb = keyboards_js_1.BotKeyboards.getAdminPanelKeyboard(adminUrl);
-            if (action === 'stats' || action === 'refresh') {
-                const uCount = await index_js_1.db.query('SELECT COUNT(*) as count FROM users');
-                const gCount = await index_js_1.db.query('SELECT COUNT(*) as count FROM groups WHERE is_active = TRUE');
-                const pCount = await index_js_1.db.query('SELECT COUNT(*) as count FROM users WHERE is_paid = TRUE');
-                const tCount = await index_js_1.db.query('SELECT COUNT(*) as count FROM user_tests');
-                const scoreRes = await index_js_1.db.query('SELECT COALESCE(SUM(grade), 0) as total_scores, ROUND(AVG(grade), 1) as avg FROM student_grades');
-                const msg = `📊 <b>Tizim Statistikasi (Administrator)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n` +
-                    `👥 Jami o'quvchilar: <b>${uCount.rows[0]?.count || 0} nafar</b>\n` +
-                    `💳 To'lagan o'quvchilar: <b>${pCount.rows[0]?.count || 0} nafar</b>\n` +
-                    `📚 Faol guruhlar: <b>${gCount.rows[0]?.count || 0} ta</b>\n` +
-                    `📝 Yechilgan testlar: <b>${tCount.rows[0]?.count || 0} ta</b>\n` +
-                    `⭐️ Umumiy jamlangan ballar: <b>${scoreRes.rows[0]?.total_scores || 0} ball</b> (O'rtacha: ${scoreRes.rows[0]?.avg || 0})\n\n` +
-                    `🌐 <b>Veb Panel:</b> <a href="${adminUrl}">Admin Panel Saytini Ochish</a>`;
-                await ctx.reply(msg, { parse_mode: 'HTML', reply_markup: kb });
-                return;
-            }
-            if (action === 'groups') {
-                const grpRes = await index_js_1.db.query(`SELECT g.id, g.name, g.access_code,
-            (SELECT COUNT(*) FROM users u WHERE u.joined_group_id = g.id) as members_count
-           FROM groups g ORDER BY g.id ASC`);
-                let gText = `👥 <b>Guruhlar Nazorati</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
-                if (grpRes.rows.length === 0) {
-                    gText += `<i>Hozircha guruhlar mavjud emas.</i>\n`;
-                }
-                else {
-                    grpRes.rows.forEach((g, i) => {
-                        gText += `${i + 1}. <b>${g.name}</b>\n` +
-                            `   🔑 Kirish kodi: <code>${g.access_code}</code>\n` +
-                            `   👥 O'quvchilar soni: <b>${g.members_count} nafar</b>\n\n`;
-                    });
-                }
-                await ctx.reply(gText, { parse_mode: 'HTML', reply_markup: kb });
-                return;
-            }
-            if (action === 'students') {
-                const today = (0, index_js_1.getTashkentDate)();
-                const stdRes = await index_js_1.db.query(`SELECT u.first_name, u.username, g.name as group_name,
-            COALESCE(SUM(sg.grade), 0) as total_score,
-            MAX(CASE WHEN sg.grade_date = $1 THEN sg.grade ELSE NULL END) as today_grade
-           FROM users u
-           LEFT JOIN groups g ON g.id = u.joined_group_id
-           LEFT JOIN student_grades sg ON sg.user_id = u.id
-           GROUP BY u.id, u.first_name, u.username, g.name
-           ORDER BY total_score DESC, u.id DESC LIMIT 15`, [today]);
-                let sText = `🎓 <b>O'quvchilar va Jamlangan Ballar (Top-15)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
-                if (stdRes.rows.length === 0) {
-                    sText += `<i>O'quvchilar ro'yxati bo'sh.</i>\n`;
-                }
-                else {
-                    stdRes.rows.forEach((s, i) => {
-                        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`;
-                        const name = s.first_name || (s.username ? `@${s.username}` : `O'quvchi`);
-                        const grp = s.group_name || 'Guruhsiz';
-                        const todayStr = s.today_grade ? `(Bugun: ⭐️ ${s.today_grade})` : '';
-                        sText += `${medal} <b>${name}</b> [${grp}] — <b>${s.total_score} ball</b> ${todayStr}\n`;
-                    });
-                }
-                await ctx.reply(sText, { parse_mode: 'HTML', reply_markup: kb });
-                return;
-            }
-            if (action === 'tests') {
-                const testRes = await index_js_1.db.query(`SELECT level, COUNT(*) as count FROM user_tests GROUP BY level ORDER BY count DESC`);
-                let tText = `📝 <b>Test Tizimi Natijalari</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
-                if (testRes.rows.length === 0) {
-                    tText += `<i>Testlar hali yechilmagan.</i>\n`;
-                }
-                else {
-                    testRes.rows.forEach((t) => {
-                        tText += `• <b>${t.level}:</b> ${t.count} ta topshirilgan\n`;
-                    });
-                }
-                await ctx.reply(tText, { parse_mode: 'HTML', reply_markup: kb });
-                return;
-            }
+            const adminUrl = this.getAcademyAdminUrl();
+            await ctx.reply(adminUrl ? `🌐 Yagona admin panel: ${adminUrl}` : 'Sayt admin paneli havolasi sozlanmagan.');
         });
         // 8. AI Ustoz rejimini yopish callback
         bot.callbackQuery(/^(exit_gemini|exit_ai_tutor)$/, async (ctx) => {
@@ -482,20 +435,38 @@ class BotManager {
             const text = ctx.message.text.trim();
             const session = this.getSession(telegramId);
             const lang = await i18n_js_1.I18nService.getUserLanguage(telegramId);
-            // Agar admin parolini kutayotgan bo'lsa
-            if (session.state === 'waiting_admin_password') {
-                const settingRes = await index_js_1.db.query("SELECT value FROM settings WHERE key = 'admin_password'");
-                const dbPassword = settingRes.rows[0]?.value;
-                const correctPassword = (dbPassword !== undefined ? dbPassword : config_js_1.config.adminPassword || '123').trim();
-                if (text === correctPassword) {
-                    session.isAdmin = true;
-                    session.state = 'idle';
-                    const adminUrl = config_js_1.config.adminPanelUrl || `http://localhost:${config_js_1.config.adminPort}`;
-                    await ctx.reply(adminUrl);
+            if (session.state === 'waiting_review_text') {
+                if (ctx.chat.type !== 'private') {
+                    await ctx.reply('Sharhni bot bilan shaxsiy chatda yuboring.');
+                    return;
                 }
-                else {
+                if (text.toLowerCase() === '/cancel') {
                     session.state = 'idle';
-                    await ctx.reply("⛔️ Parol noto'g'ri kiritildi!");
+                    await ctx.reply(lang === 'ru' ? 'Отправка отзыва отменена.' : lang === 'en' ? 'Review submission cancelled.' : 'Sharh yuborish bekor qilindi.');
+                    return;
+                }
+                if (text.length > 2000) {
+                    await ctx.reply(lang === 'ru' ? 'Отзыв должен быть не длиннее 2000 символов.' : lang === 'en' ? 'The review must be 2,000 characters or fewer.' : 'Sharh 2000 belgidan oshmasligi kerak.');
+                    return;
+                }
+                try {
+                    const name = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Telegram o‘quvchi';
+                    await (0, academySync_js_1.submitAcademyReview)(telegramId, name, text);
+                    session.state = 'idle';
+                    await ctx.reply(lang === 'ru'
+                        ? '✅ Спасибо! Отзыв отправлен администратору на проверку.'
+                        : lang === 'en'
+                            ? '✅ Thank you! Your review has been sent to the admin for approval.'
+                            : '✅ Rahmat! Sharhingiz admin tasdig‘iga yuborildi.');
+                }
+                catch (error) {
+                    console.error('[Academy Sync] Sharhni saytga yuborib bo‘lmadi:', error.message);
+                    session.state = 'idle';
+                    await ctx.reply(lang === 'ru'
+                        ? '❌ Не удалось отправить отзыв. Попробуйте позже.'
+                        : lang === 'en'
+                            ? '❌ Could not send the review. Please try again later.'
+                            : '❌ Sharh yuborilmadi. Keyinroq qayta urinib ko‘ring.');
                 }
                 return;
             }
@@ -545,11 +516,6 @@ class BotManager {
                 await this.handleAITutorStart(ctx, telegramId, lang);
                 return;
             }
-            // 5. To'lov menyusi (Admin Telegram shaxsiy chatiga to'g'ridan-to'g'ri o'tish)
-            if (lower.includes('to\'lov') || lower.includes("to'lov") || lower.includes('tolov') || lower.includes('оплат') || lower.includes('payment')) {
-                await this.handlePaymentRequest(ctx, telegramId, lang);
-                return;
-            }
             // 6. Aloqa / Yordam menyusi (Admin Telegram shaxsiy chatiga to'g'ridan-to'g'ri o'tish)
             if (lower.includes('aloqa') || lower.includes('yordam') || lower.includes('admin bilan bog\'lanish') || lower.includes('связь') || lower.includes('поддержк') || lower.includes('contact')) {
                 await this.handleSupportInfo(ctx, lang);
@@ -568,9 +534,15 @@ class BotManager {
      * Admin panel ochish (/admin buyrug'i va menyu tugmasi uchun)
      */
     async handleAdminCommand(ctx, telegramId) {
-        const session = this.getSession(telegramId);
-        session.state = 'waiting_admin_password';
-        await ctx.reply("🔐 <b>Admin Panelga Kirish</b>\n━━━━━━━━━━━━━━━━━━━━\n\nIltimos, admin parolini kiriting:", { parse_mode: 'HTML' });
+        if (!this.isUserAdmin(telegramId)) {
+            await ctx.reply("Admin panel faqat administrator uchun. O'quvchi sifatida bot menyusidan foydalaning.");
+            return;
+        }
+        const adminUrl = this.getAcademyAdminUrl();
+        await ctx.reply(adminUrl ? `🌐 Yagona admin panel: ${adminUrl}` : 'Sayt admin paneli havolasi sozlanmagan.');
+    }
+    getAcademyAdminUrl() {
+        return config_js_1.config.academyAdminUrl || (config_js_1.config.academyApiUrl ? `${config_js_1.config.academyApiUrl}/admin` : '');
     }
     /**
      * Guruh kodini tekshirish
@@ -636,6 +608,17 @@ class BotManager {
        WHERE u.telegram_id = $1
        GROUP BY u.id, u.telegram_id, u.first_name, u.joined_group_id, g.name`, [telegramId]);
         const currentUser = userRes.rows[0];
+        let academyStats;
+        let academyStatsError = false;
+        if (config_js_1.config.academyApiUrl && config_js_1.config.academySyncSecret) {
+            try {
+                academyStats = await (0, academySync_js_1.getAcademyStudentStats)(telegramId);
+            }
+            catch (error) {
+                academyStatsError = true;
+                console.warn('[Academy Sync] Sayt o‘quvchi statistikasini olib bo‘lmadi:', error.message);
+            }
+        }
         // 2. O'quvchilar ro'yxati (Barcha guruhlar bo'yicha opshe ballarga qarab saralash)
         const rankingRes = await index_js_1.db.query(`SELECT u.id, u.telegram_id, u.first_name, u.username,
         COALESCE(g.name, 'Guruhsiz') as group_name,
@@ -668,6 +651,33 @@ class BotManager {
         }
         else {
             report += `ℹ️ <i>Siz hali tizimda baholanmagansiz</i>\n`;
+        }
+        report += `━━━━━━━━━━━━━━━━━━━━\n`;
+        report += `🌐 <b>Saytdagi kurs statistikangiz</b>\n`;
+        if (academyStatsError) {
+            report += `⚠️ <i>Sayt statistikasi hozircha yuklanmadi. Keyinroq qayta urinib ko‘ring.</i>\n`;
+        }
+        else if (!config_js_1.config.academyApiUrl || !config_js_1.config.academySyncSecret) {
+            report += `⚠️ <i>Sayt bilan sinxronlash sozlanmagan.</i>\n`;
+        }
+        else if (!academyStats?.groups.length) {
+            report += `ℹ️ <i>Saytda sizning Telegram ID'ingiz bilan bog‘langan faol guruh va baholar topilmadi.</i>\n`;
+        }
+        else {
+            for (const group of academyStats.groups) {
+                const progressLabel = group.progressStatus === 'improved'
+                    ? `📈 +${group.progressDifference}`
+                    : group.progressStatus === 'declined'
+                        ? `📉 ${group.progressDifference}`
+                        : group.progressStatus === 'unchanged'
+                            ? '➡️ O‘zgarish yo‘q'
+                            : '⏳ Hali yetarli baho yo‘q';
+                report += `🏫 <b>${group.groupName}</b>\n`;
+                report += `🏆 O‘rningiz: <b>${group.rank}/${group.groupSize}</b>\n`;
+                report += `⭐ Joriy oy ballari: <b>${group.monthPoints}</b> · jami ball: <b>${group.totalPoints}</b>\n`;
+                report += `📝 Baholangan darslar: <b>${group.gradedLessons}</b> · o‘rtacha: <b>${group.averageGrade ?? '—'}</b>\n`;
+                report += `${progressLabel}\n`;
+            }
         }
         report += `━━━━━━━━━━━━━━━━━━━━\n`;
         if (isExpanded) {
@@ -712,28 +722,21 @@ class BotManager {
         const kb = keyboards_js_1.BotKeyboards.getContactAdminKeyboard(adminUrl, lang, '💬 Admin Shaxsiy Chatiga Yozish');
         const msg = `💬 <b>Admin bilan Bog'lanish Markazi</b>\n` +
             `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `Arab tili kurslari, to'lovlar va boshqa barcha savollaringiz bo'yicha to'g'ridan-to'g'ri administrator shaxsiy chatiga murojaat qilishingiz mumkin.\n\n` +
+            `Arab tili kurslari va darslar bo'yicha savollaringiz uchun administratorga yozishingiz mumkin.\n\n` +
             `👇 Administrator bilan shaxsiy chatda bog'lanish uchun pastdagi tugmani bosing:`;
         await ctx.reply(msg, {
             parse_mode: 'HTML',
             reply_markup: kb,
         });
     }
-    /**
-     * To'lov bo'limi (Admin Telegram shaxsiy chatiga to'g'ridan-to'g'ri o'tish)
-     */
-    async handlePaymentRequest(ctx, telegramId, lang) {
-        const adminUrl = this.getAdminTelegramUrl("Assalomu alaykum, arab tili kursiga yozilmoqchiman, to'lov ma'lumotlarini bering");
-        const kb = keyboards_js_1.BotKeyboards.getContactAdminKeyboard(adminUrl, lang, '💬 To\'lov uchun Admin Chatiga O\'tish');
-        const msg = `💳 <b>Kurs To'lovi va Qabul</b>\n` +
+    /** Course enrollment questions are handled by the administrator. */
+    async handleEnrollmentInfo(ctx, lang) {
+        const adminUrl = this.getAdminTelegramUrl("Assalomu alaykum, arab tili kursiga yozilmoqchiman");
+        const kb = keyboards_js_1.BotKeyboards.getContactAdminKeyboard(adminUrl, lang, '💬 Kurs haqida bog‘lanish');
+        const msg = `📚 <b>Kursga yozilish</b>\n` +
             `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `Kursga yozilish, to'lov rekvizitlarini olish va guruhga kirish kodini tasdiqlatish administrator orqali amalga oshiriladi.\n\n` +
-            `<b>Qabul tartibi:</b>\n` +
-            `1️⃣ Pastdagi tugma orqali administrator bilan bog'laning;\n` +
-            `2️⃣ To'lovni amalga oshirib, chekni yuboring;\n` +
-            `3️⃣ Administrator sizga maxsus guruh kodini taqdim etadi;\n` +
-            `4️⃣ Botdagi "👥 O'quv Guruhlari" bo'limida kodni kiritib darslarni boshlang!\n\n` +
-            `👇 Administrator bilan shaxsiy chatda bog'lanish:`;
+            `Kursga yozilish va darslar haqida ma'lumot olish uchun administrator bilan bog'laning.\n\n` +
+            `👇 Administratorning Telegram sahifasi:`;
         await ctx.reply(msg, {
             parse_mode: 'HTML',
             reply_markup: kb,

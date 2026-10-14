@@ -11,6 +11,7 @@ const config_js_1 = require("./config.js");
 const index_js_1 = require("./db/index.js");
 const manager_js_1 = require("./bot/manager.js");
 const api_js_1 = require("./routes/api.js");
+const academySync_js_1 = require("./services/academySync.js");
 const app = (0, express_1.default)();
 // Middleware
 app.use((0, cors_1.default)());
@@ -37,7 +38,7 @@ app.use((err, req, res, next) => {
 });
 // .env fayli o'zgarishini kuzatish (Token o'zgarsa darhol yangi tokenga o'tish)
 function setupEnvWatcher() {
-    const envFilePath = path_1.default.resolve(process.cwd(), '.env');
+    const envFilePath = path_1.default.resolve(__dirname, '..', '.env');
     let lastToken = config_js_1.config.botToken;
     if (fs_1.default.existsSync(envFilePath)) {
         fs_1.default.watchFile(envFilePath, { interval: 1000 }, async (curr, prev) => {
@@ -84,6 +85,29 @@ async function bootstrap() {
         console.log('🚀 [Backend] Tizim ishga tushirilmoqda...');
         // 1. Bazani initsializatsiya qilish (Token'dan mustaqil, ma'lumotlar yo'qolmaydi)
         await index_js_1.db.init();
+        if (config_js_1.config.academyApiUrl && config_js_1.config.academySyncSecret) {
+            let statsSyncInFlight = false;
+            const syncBotStats = async () => {
+                if (statsSyncInFlight)
+                    return;
+                statsSyncInFlight = true;
+                try {
+                    await (0, academySync_js_1.syncAcademyStats)();
+                }
+                catch (error) {
+                    console.warn('[Academy Sync] Sinxronlash amalga oshmadi:', error.message);
+                }
+                finally {
+                    statsSyncInFlight = false;
+                }
+            };
+            void syncBotStats();
+            const syncInterval = setInterval(syncBotStats, 30000);
+            syncInterval.unref();
+        }
+        else {
+            console.warn('[Academy Sync] Statistika sinxronlash o‘chiq: ACADEMY_API_URL va ACADEMY_SYNC_SECRET kerak.');
+        }
         // 2. Telegram botni ishga tushirish
         await manager_js_1.botManager.start();
         // 3. .env faylini kuzatish
@@ -91,7 +115,6 @@ async function bootstrap() {
         // 4. Express serverni tinglash
         const server = app.listen(config_js_1.config.port, () => {
             console.log(`🌐 [Backend API] Server http://localhost:${config_js_1.config.port} da muvaffaqiyatli ishlayapti`);
-            console.log(`💻 [Admin Panel] Admin panel porti: http://localhost:${config_js_1.config.adminPort}`);
         });
         // Graceful shutdown o'rnatish
         setupShutdown(server);

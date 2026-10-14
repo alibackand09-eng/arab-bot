@@ -6,6 +6,7 @@ import { config, reloadConfig } from './config.js';
 import { db } from './db/index.js';
 import { botManager } from './bot/manager.js';
 import { apiRouter } from './routes/api.js';
+import { syncAcademyStats } from './services/academySync.js';
 
 const app = express();
 
@@ -38,7 +39,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
 // .env fayli o'zgarishini kuzatish (Token o'zgarsa darhol yangi tokenga o'tish)
 function setupEnvWatcher() {
-  const envFilePath = path.resolve(process.cwd(), '.env');
+  const envFilePath = path.resolve(__dirname, '..', '.env');
   let lastToken = config.botToken;
 
   if (fs.existsSync(envFilePath)) {
@@ -93,6 +94,26 @@ async function bootstrap() {
     // 1. Bazani initsializatsiya qilish (Token'dan mustaqil, ma'lumotlar yo'qolmaydi)
     await db.init();
 
+    if (config.academyApiUrl && config.academySyncSecret) {
+      let statsSyncInFlight = false;
+      const syncBotStats = async () => {
+        if (statsSyncInFlight) return;
+        statsSyncInFlight = true;
+        try {
+          await syncAcademyStats();
+        } catch (error: any) {
+          console.warn('[Academy Sync] Sinxronlash amalga oshmadi:', error.message);
+        } finally {
+          statsSyncInFlight = false;
+        }
+      };
+      void syncBotStats();
+      const syncInterval = setInterval(syncBotStats, 30000);
+      syncInterval.unref();
+    } else {
+      console.warn('[Academy Sync] Statistika sinxronlash o‘chiq: ACADEMY_API_URL va ACADEMY_SYNC_SECRET kerak.');
+    }
+
     // 2. Telegram botni ishga tushirish
     await botManager.start();
 
@@ -102,7 +123,6 @@ async function bootstrap() {
     // 4. Express serverni tinglash
     const server = app.listen(config.port, () => {
       console.log(`🌐 [Backend API] Server http://localhost:${config.port} da muvaffaqiyatli ishlayapti`);
-      console.log(`💻 [Admin Panel] Admin panel porti: http://localhost:${config.adminPort}`);
     });
 
     // Graceful shutdown o'rnatish
@@ -113,4 +133,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-

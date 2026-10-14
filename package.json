@@ -5,21 +5,16 @@
   "main": "dist/server.js",
   "scripts": {
     "dev:backend": "tsx watch src/server.ts",
-    "dev:admin": "npm run dev --prefix admin",
-    "dev": "concurrently -k -n \"BACKEND,ADMIN\" -c \"blue,green\" \"npm run dev:backend\" \"npm run dev:admin\"",
+    "dev": "npm run dev:backend",
     "build:backend": "tsc",
-    "build:admin": "npm run build --prefix admin",
-    "build": "npm run build:backend && npm run build:admin",
-    "prestart": "npm run build",
+    "build": "npm run build:backend",
+    "prestart": "npm run build:backend",
     "start:backend": "tsx src/server.ts",
-    "start:admin": "npm run start --prefix admin",
-    "start": "concurrently -k -n \"BACKEND,ADMIN\" -c \"blue,green\" \"npm run start:backend\" \"npm run start:admin\"",
-    "postinstall": "node -e \"if (require('fs').existsSync('./admin/package.json')) { require('child_process').execSync('npm --prefix admin install', { stdio: 'inherit' }); }\""
+    "start": "npm run start:backend"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
     "@types/multer": "^2.3.0",
-    "concurrently": "^9.1.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
@@ -41,7 +36,6 @@
     "telegram-bot",
     "grammy",
     "arabic-learning",
-    "admin-panel",
     "express"
   ],
   "author": "Antigravity",

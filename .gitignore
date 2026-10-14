@@ -1,6 +1,7 @@
 node_modules
 .env
-.env.example
+.next
 data
 *.db
 data/*
+.env.example
