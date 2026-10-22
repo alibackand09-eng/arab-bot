@@ -54,7 +54,7 @@ class DatabaseManager {
 
     // 2. Agar PostgreSQL ishlamasa yoki bo'lmasa, Node.js native SQLite bazasini yoqamiz
     if (!this.pgPool) {
-      const dataDir = path.resolve(process.cwd(), 'data');
+      const dataDir = path.resolve(__dirname, '..', '..', 'data');
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
       }
@@ -631,9 +631,9 @@ class DatabaseManager {
       },
       {
         key: 'course_info_prompt',
-        uz: "📚 **Bizning kurslarimiz va narxlar:**\n\n1️⃣ **Boshlang'ich Arab tili** — 250 000 so'm/oy (Alifbo, fonetika, o'qish)\n2️⃣ **Sarf va Nahv** — 350 000 so'm/oy (Grammatika va Qur'on matnlari)\n3️⃣ **Fusha So'zlashuv** — 300 000 so'm/oy (Ravon muloqot va audio darslar)\n\nKursga yozilish yoki ma'lumot olish uchun quyidagi tugmani bosing:",
-        ru: "📚 **Наши курсы и цены:**\n\n1️⃣ **Начальный арабский** — 250 000 сум/мес (Алфавит, фонетика, чтение)\n2️⃣ **Сарф и Нахв** — 350 000 сум/мес (Грамматика и текст Корана)\n3️⃣ **Фусха Разговорный** — 300 000 сум/мес (Свободное общение)\n\nНажмите кнопку ниже, чтобы записаться:",
-        en: "📚 **Our Courses & Pricing:**\n\n1️⃣ **Beginner Arabic** — 250,000 UZS/month (Alphabet, phonetics, reading)\n2️⃣ **Sarf & Nahw** — 350,000 UZS/month (Grammar & Quranic analysis)\n3️⃣ **Fusha Conversation** — 300,000 UZS/month (Fluent speaking)\n\nClick the button below to enroll:"
+        uz: "📚 **Bizning kurslarimiz:**\n\n1️⃣ **Boshlang'ich Arab tili** (Alifbo, fonetika, o'qish)\n2️⃣ **Sarf va Nahv** (Grammatika va Qur'on matnlari)\n3️⃣ **Fusha So'zlashuv** (Ravon muloqot va audio darslar)\n\nKursga yozilish yoki ma'lumot olish uchun quyidagi tugmani bosing:",
+        ru: "📚 **Наши курсы:**\n\n1️⃣ **Начальный арабский** (Алфавит, фонетика, чтение)\n2️⃣ **Сарф и Нахв** (Грамматика и текст Корана)\n3️⃣ **Фусха Разговорный** (Свободное общение)\n\nНажмите кнопку ниже, чтобы записаться:",
+        en: "📚 **Our Courses:**\n\n1️⃣ **Beginner Arabic** (Alphabet, phonetics, reading)\n2️⃣ **Sarf & Nahw** (Grammar & Quranic analysis)\n3️⃣ **Fusha Conversation** (Fluent speaking)\n\nClick the button below to enroll:"
       },
       {
         key: 'btn_enroll',
@@ -667,6 +667,16 @@ class DatabaseManager {
         await this.query(
           'INSERT INTO system_translations (key, text_uz, text_ru, text_en) VALUES ($1, $2, $3, $4)',
           [item.key, item.uz, item.ru, item.en]
+        );
+      } else if (
+        item.key === 'course_info_prompt' &&
+        /250\s*000|300\s*000|350\s*000|250,000|300,000|350,000/.test(
+          `${exists.rows[0].text_uz} ${exists.rows[0].text_ru} ${exists.rows[0].text_en}`
+        )
+      ) {
+        await this.query(
+          'UPDATE system_translations SET text_uz = $1, text_ru = $2, text_en = $3 WHERE key = $4',
+          [item.uz, item.ru, item.en, item.key]
         );
       }
     }

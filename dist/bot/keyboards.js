@@ -22,17 +22,17 @@ class BotKeyboards {
         if (lang === 'ru') {
             keyboard.text('📊 Общий рейтинг и Статистика').text('👥 Учебные группы').row();
             keyboard.text('📝 Тест по арабскому').text('🤖 ИИ Учитель').row();
-            keyboard.text('💳 Оплата курса').text('💬 Связь с Администратором');
+            keyboard.text('💬 Связь с Администратором');
         }
         else if (lang === 'en') {
             keyboard.text('📊 General Ranking & Stats').text('👥 Study Groups').row();
             keyboard.text('📝 Arabic Quiz').text('🤖 AI Tutor').row();
-            keyboard.text('💳 Course Payment').text('💬 Contact Administrator');
+            keyboard.text('💬 Contact Administrator');
         }
         else {
             keyboard.text('📊 Umumiy Reyting va Statistika').text('👥 O\'quv Guruhlari').row();
             keyboard.text('📝 Arab Tili Testi').text('🤖 AI Ustoz').row();
-            keyboard.text('💳 Kurs To\'lovi').text('💬 Admin bilan bog\'lanish');
+            keyboard.text('💬 Admin bilan bog\'lanish');
         }
         keyboard.resized();
         return keyboard;

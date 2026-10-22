@@ -1,6 +1,6 @@
 # Arab Tili Boti va Admin Paneli — Versiya 4.0 🌟
 
-Arab tili o'quv markazi uchun telegram boti (grammY) va Next.js zamonaviy Admin paneli.
+Arab tili o'quv markazi uchun grammY Telegram boti va uning API backend'i.
 
 ---
 
@@ -20,26 +20,35 @@ Arab tili o'quv markazi uchun telegram boti (grammY) va Next.js zamonaviy Admin 
 
 Loyihani bitta buyruq bilan ishga tushirish mumkin:
 
-```bash
-# 1. Bog'liqliklarni o'rnatish
+```powershell
+# arab-bot papkasiga kiring
+cd arab-bot
+
+# Maxfiy sozlamalar shablonidan lokal .env yarating
+Copy-Item .env.example .env
+
+# .env faylida kamida BOT_TOKEN va ADMIN_ID qiymatlarini to'ldiring
+
+# Bog'liqliklarni o'rnating
 npm install
 
-# 2. Tizimni to'liq ishga tushirish (Bot + Backend + Admin Panel)
+# Bot va API'ni ishga tushiring
 npm start
 ```
 
-- 💻 **Admin Panel**: `http://localhost:3000`
 - 🌐 **Backend API**: `http://localhost:5000`
+- Admin boshqaruvi asosiy saytning yagona admin panelida amalga oshiriladi.
+- `.env` maxfiy ma'lumot saqlagani uchun `.gitignore` ichida va `git clone` bilan kelmaydi. `.env.example` nusxasidan `.env` yarating; haqiqiy token yoki parollarni GitHub'ga yubormang.
+- Bot tokenisiz API ishga tushishi mumkin, ammo Telegram bot ishlamaydi. `.env` ichidagi `BOT_TOKEN`ga @BotFather bergan tokenni kiriting.
+- `DATABASE_URL` bo'sh qolsa lokal SQLite avtomatik ishlatiladi.
 
 ---
 
 ## 🎯 Bot Imkoniyatlari (v4)
 
 1. **`/start`** → 🇺🇿 O'zbek | 🇷🇺 Русский | 🇬🇧 English.
-   - Tanlangach kurslar haqida ma'lumot va **to'lov narxlari aniq ko'rsatiladi**:
-     - Boshlang'ich Arab tili: **250 000 so'm / oy**
-     - Sarf va Nahv: **350 000 so'm / oy**
-     - Fusha So'zlashuv: **300 000 so'm / oy**
+   - Tanlangach kurslar haqida narxlarsiz ma'lumot ko'rsatiladi.
+2. **`/review`** → o'quvchi sharhini sayt adminiga tasdiqlash uchun yuboradi.
 2. **📊 Statistika — Guruh bo'yicha va O'rin bilan**:
    - Foydalanuvchi avval o'z guruhini tanlaydi.
    - Shu guruhdagi barcha o'quvchilar ichida **nechinchi o'rinda turgani** (masalan, `1-o'rin (15 ta o'quvchi ichida)`) va qo'yilgan bahosi (`⭐️ 5 / 5`) ko'rsatiladi. Har guruh statistikasi alohida.
@@ -47,7 +56,7 @@ npm start
    - Ustoz botda `/ustoz` buyrug'i va parolni (standart: `123`, `.env`dagi `TEACHER_ACCESS_CODE`) kiritadi.
    - Ustozga **faqat baho qo'yish** imkoniyati beriladi: guruhni tanlaydi -> o'quvchini tanlaydi -> 1 dan 5 gacha baho qo'yadi.
 4. **📞 Aloqa va Yordam**:
-   - `.env`dagi telefon raqami (`SUPPORT_PHONE`) va admin Telegram havolasi (`ADMIN_TELEGRAM_CONTACT`) ko'rsatiladi.
+   - Admin Telegram havolasi (`ADMIN_TELEGRAM_CONTACT`) ko'rsatiladi.
 5. **👥 Guruhlar**:
    - Guruh tanlanganda kirish kodi so'raladi va to'g'ri bo'lsa qabul qilinadi.
 6. **📝 Test**:
@@ -55,17 +64,20 @@ npm start
 
 ---
 
-## 🖥 Admin Panel Imkoniyatlari (v4)
+## 🔗 Sayt bilan ulanish
 
-1. **📊 Boshqaruv & Reyting (`/`)**:
-   - Jami o'quvchilar, guruhlar, to'lovlar va baholanganlar ko'rsatkichi.
-   - Har bir guruh bo'yicha kuchli, dinamik reyting va top o'quvchilar.
-2. **👥 Guruhlar (`/groups`)**:
-   - Guruh yaratish, o'chirish, kirish kodini o'zgartirish (video yuklashsiz, tez va qulay).
-3. **🎓 O'quvchilar & Baholar (`/students`)**:
-   - O'quvchi qo'shish va bir bosishda **1 dan 5 gacha baho qo'yish** (⭐️ 1..5).
-4. **💳 To'lovlar (`/payments`)**:
-   - Toza ro'yxat: `Ism | Guruh | To'lov holati | [Holatni almashtirish tugmasi]`.
-   - Telegram ID ko'rsatilmaydi, dublikatsiz toza jadval.
-5. **⚙️ Sozlamalar**:
-   - Bot tokeni va Gemini kaliti UI orqali emas, faqat `.env` fayli orqali xavfsiz boshqariladi.
+Botni sayt bilan doimiy ulash uchun bot service environment'ida quyidagilarni sozlang:
+
+```env
+ACADEMY_API_URL=https://arabic-academy.onrender.com
+ACADEMY_ADMIN_URL=https://arabic-academy.onrender.com/admin
+ACADEMY_SYNC_SECRET=<site bilan bir xil kuchli sir>
+ADMIN_TELEGRAM_CONTACT=<@aishauzbikiyya_admin>
+```
+
+- Botdagi statistika sayt admin paneliga har 30 soniyada yuboriladi.
+- `/review` orqali yuborilgan sharhlar sayt admini tasdiqlamaguncha ommaga ko'rinmaydi.
+- `/admin` botdagi admin ID uchun saytning yagona admin panel havolasini beradi.
+- Bot service bilan sayt service'dagi `BOT_SYNC_SECRET` qiymati bir xil bo'lishi kerak.
+- O'quvchi botdagi statistika bo'limida sayt guruhlaridagi o'z baholari va reytingini ko'rishi uchun `ACADEMY_SYNC_SECRET` qiymatini sayt backend'idagi `BOT_SYNC_SECRET` bilan aynan bir xil qiling.
+- Telegram bot faqat shu `arab-bot` servisida ishlashi kerak. Sayt backend'ida ham bot polling ishlayotgan eski deploy bo'lsa, saytni qayta deploy qiling va `BOT_TOKEN`ni faqat bot service'da qoldiring; aks holda Telegram `409 Conflict` qaytarishi mumkin.
