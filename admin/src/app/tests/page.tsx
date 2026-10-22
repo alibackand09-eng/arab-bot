@@ -341,232 +341,105 @@ export default function TestSettingsPage() {
             Sozlamalarni Saqlash
           </button>
         </div>
-      </div>
-
-      {loading ? (
+      </div>      {loading ? (
         <div className="py-20 text-center flex flex-col items-center justify-center text-[#9E7D66]">
           <Loader2 className="w-8 h-8 animate-spin text-[#8C5A3C] mb-2" />
           <span>Sozlamalar yuklanmoqda...</span>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Chap ustun: Asosiy parametrlar */}
+          {/* Chap ustun: Kunlik Test Limiti Sozlamasi (TALAB 5) */}
           <div className="lg:col-span-2 space-y-6">
-            {/* 1. PDF Kitob Yuklash va Kutubxonadan Tanlash */}
-            <div className="bg-[#FFFFFF] border border-[#E8D8CC] rounded-2xl p-6 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="w-5 h-5 text-[#8C5A3C]" />
-                  <h2 className="font-bold text-[#3D200F] text-base font-heading">
-                    1. Test Uchun PDF Kitob (Darslik)
-                  </h2>
-                </div>
-                {bookPdfPath && (
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    PDF Faol
-                  </span>
-                )}
-              </div>
-
-              <p className="text-xs text-[#6E4F39] mb-4">
-                Admin yuklagan yoki kutubxonadan tanlangan darslik matni asosida sun'iy intellekt juda chuqur va aniq test savollarini tuzadi.
-              </p>
-
-              <div className="border-2 border-dashed border-[#DCC3B0] rounded-xl p-5 bg-[#FAF4EF] text-center hover:border-[#8C5A3C] transition-colors">
-                <FileText className="w-8 h-8 text-[#8C5A3C] mx-auto mb-2 opacity-80" />
-                {bookPdfPath ? (
-                  <div className="space-y-1">
-                    <p className="text-sm font-bold text-[#3D200F]">
-                      {bookName || bookPdfPath.split(/[/\\]/).pop()}
-                    </p>
-                    <p className="text-xs text-[#9E7D66]">
-                      Matn hajmi: {bookTextLength.toLocaleString()} ta belgi
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-sm text-[#6E4F39]">
-                    Hozircha test darsligi biriktirilmagan. Kutubxonadan tanlang yoki yangi PDF yuklang.
-                  </p>
-                )}
-
-                <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
-                  <label className="inline-flex items-center gap-2 px-4 py-2 bg-[#8C5A3C] hover:bg-[#A6714E] text-white rounded-xl text-xs font-semibold cursor-pointer transition-all shadow-sm">
-                    {uploadingPdf ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Upload className="w-4 h-4" />
-                    )}
-                    <span>Yangi PDF Yuklash</span>
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      onChange={handlePdfUpload}
-                      disabled={uploadingPdf}
-                      className="hidden"
-                    />
-                  </label>
-
-                  <button
-                    onClick={() => setSelectBookModalOpen(true)}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-[#FAF4EF] text-[#8C5A3C] border border-[#DCC3B0] rounded-xl text-xs font-semibold transition-all shadow-sm"
-                  >
-                    <BookMarked className="w-4 h-4" />
-                    <span>Kutubxonadan Tanlash ({libraryBooks.length})</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* 2. Mavzular Tanlovi */}
-            <div className="bg-[#FFFFFF] border border-[#E8D8CC] rounded-2xl p-6 shadow-sm">
-              <div className="flex items-center gap-2 mb-2">
-                <HelpCircle className="w-5 h-5 text-[#8C5A3C]" />
-                <h2 className="font-bold text-[#3D200F] text-base font-heading">
-                  2. Qaysi Mavzulardan Savol Berilsin?
-                </h2>
-              </div>
-              <p className="text-xs text-[#6E4F39] mb-4">
-                Masalan: <b>"1-8"</b> (diapazon) yoki aniq ro'yxat: <b>"2, 9, 1, 23"</b>, yoki <b>"all"</b> (barcha mavzular).
-              </p>
-
-              <div>
-                <input
-                  type="text"
-                  value={selectedTopics}
-                  onChange={(e) => setSelectedTopics(e.target.value)}
-                  placeholder="Masalan: 1-8 yoki 2, 9, 1, 23"
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#DCC3B0] bg-[#FAF4EF] text-[#3D200F] font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#8C5A3C]"
-                />
-              </div>
-
-              <div className="mt-4 p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
-                <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                <div className="leading-relaxed">
-                  <b>Muhim mantiqiy qoida faol:</b> Agar mavzu bitta so'zning o'qilishi haqida bo'lsa, savol o'sha so'zning o'ziga oid nozik talaffuz detallari bilan murakkablashtiriladi. Mavzuda yo'q grammatik tushunchalar aralashtirilmaydi.
-                </div>
-              </div>
-            </div>
-
-            {/* 3. Savol Turi Tanlovi */}
-            <div className="bg-[#FFFFFF] border border-[#E8D8CC] rounded-2xl p-6 shadow-sm">
-              <div className="flex items-center gap-2 mb-2">
-                <Sparkles className="w-5 h-5 text-[#8C5A3C]" />
-                <h2 className="font-bold text-[#3D200F] text-base font-heading">
-                  3. Savol Turi Tanlovi
-                </h2>
-              </div>
-              <p className="text-xs text-[#6E4F39] mb-4">
-                Admin bir yoki bir nechta savol turini tanlashi mumkin:
-              </p>
-
-              <div className="space-y-2.5">
-                {QUESTION_TYPES.map((qt) => {
-                  const isChecked = questionTypes.includes(qt.id);
-                  return (
-                    <label
-                      key={qt.id}
-                      onClick={() => handleToggleQuestionType(qt.id)}
-                      className={`flex items-center gap-3 p-3 rounded-xl border text-xs cursor-pointer transition-all ${
-                        isChecked
-                          ? 'bg-[#FAF4EF] border-[#8C5A3C] text-[#3D200F] font-semibold'
-                          : 'bg-[#FFFFFF] border-[#E8D8CC] text-[#6E4F39] hover:bg-[#FAF4EF]'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {}}
-                        className="w-4 h-4 rounded text-[#8C5A3C] accent-[#8C5A3C]"
-                      />
-                      <span>{qt.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* O'ng ustun: Miqdor & Cheklovlar */}
-          <div className="space-y-6">
-            {/* 4. Savollar Soni & Kunlik Limit */}
             <div className="bg-[#FFFFFF] border border-[#E8D8CC] rounded-2xl p-6 shadow-sm space-y-5">
               <div className="flex items-center gap-2 border-b border-[#E8D8CC] pb-3">
                 <Clock className="w-5 h-5 text-[#8C5A3C]" />
                 <h2 className="font-bold text-[#3D200F] text-base font-heading">
-                  4. Miqdor va Kunlik Limit
+                  Foydalanuvchilar Uchun Kunlik Test Limiti
                 </h2>
               </div>
 
-              {/* Savollar soni */}
-              <div>
-                <label className="block text-xs font-semibold text-[#6E4F39] mb-1.5">
-                  Har bir testdagi savollar soni:
-                </label>
-                <div className="flex items-center gap-3">
+              <p className="text-xs text-[#6E4F39] leading-relaxed">
+                Bu yerda o'quvchilar kuniga necha marta test topshirishi mumkinligini belgilaysiz. Savollar AI tomonidan o'quvchi guruhiga biriktirilgan PDF darslik va o'tgan mavzulari asosida mustaqil, qiyin va aniq shakllantiriladi.
+              </p>
+
+              {/* Kunlik limit tanlovi */}
+              <div className="p-4 rounded-xl bg-[#FAF4EF] border border-[#E8D8CC] space-y-4">
+                <label className="flex items-center gap-3 text-sm text-[#3D200F] cursor-pointer">
                   <input
-                    type="number"
-                    min="1"
-                    max="30"
-                    value={questionCount}
-                    onChange={(e) => setQuestionCount(Number(e.target.value))}
-                    className="w-24 px-3 py-2 rounded-xl border border-[#DCC3B0] bg-[#FAF4EF] text-center font-bold text-[#3D200F] text-sm focus:outline-none focus:ring-2 focus:ring-[#8C5A3C]"
+                    type="checkbox"
+                    checked={isUnlimited}
+                    onChange={(e) => setIsUnlimited(e.target.checked)}
+                    className="w-5 h-5 text-[#8C5A3C] accent-[#8C5A3C] rounded cursor-pointer"
                   />
-                  <span className="text-xs text-[#9E7D66]">ta savol</span>
-                </div>
-              </div>
-
-              {/* Kunlik limit */}
-              <div className="pt-3 border-t border-[#E8D8CC]">
-                <label className="block text-xs font-semibold text-[#6E4F39] mb-1.5">
-                  Har bir foydalanuvchi uchun kunlik limit:
+                  <span className="font-bold flex items-center gap-2">
+                    <InfinityIcon className="w-5 h-5 text-[#8C5A3C]" /> Cheksiz (limitsiz) test topshirish
+                  </span>
                 </label>
 
-                <div className="space-y-3">
-                  <label className="flex items-center gap-2.5 text-xs text-[#3D200F] cursor-pointer">
+                {!isUnlimited && (
+                  <div className="flex items-center gap-3 pl-8 pt-2">
+                    <label className="text-xs font-semibold text-[#6E4F39]">
+                      Kunlik urinishlar soni:
+                    </label>
                     <input
-                      type="checkbox"
-                      checked={isUnlimited}
-                      onChange={(e) => setIsUnlimited(e.target.checked)}
-                      className="w-4 h-4 text-[#8C5A3C] accent-[#8C5A3C] rounded"
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={dailyLimit}
+                      onChange={(e) => setDailyLimit(Math.max(1, Number(e.target.value)))}
+                      className="w-24 px-3 py-2 rounded-xl border border-[#DCC3B0] bg-white text-center font-bold text-[#3D200F] text-sm focus:outline-none focus:ring-2 focus:ring-[#8C5A3C]"
                     />
-                    <span className="font-semibold flex items-center gap-1.5">
-                      <InfinityIcon className="w-4 h-4 text-[#8C5A3C]" /> Cheksiz (limitsiz) test
-                    </span>
-                  </label>
-
-                  {!isUnlimited && (
-                    <div className="flex items-center gap-3 pl-6">
-                      <input
-                        type="number"
-                        min="1"
-                        max="50"
-                        value={dailyLimit}
-                        onChange={(e) => setDailyLimit(Number(e.target.value))}
-                        className="w-24 px-3 py-2 rounded-xl border border-[#DCC3B0] bg-[#FAF4EF] text-center font-bold text-[#3D200F] text-sm focus:outline-none focus:ring-2 focus:ring-[#8C5A3C]"
-                      />
-                      <span className="text-xs text-[#9E7D66]">marta kuniga</span>
-                    </div>
-                  )}
-                </div>
+                    <span className="text-xs text-[#9E7D66]">marta / kun</span>
+                  </div>
+                )}
               </div>
 
-              {/* Xabar namunasi */}
-              <div className="p-3 rounded-xl bg-[#FAF4EF] border border-[#E8D8CC] text-[11px] text-[#6E4F39] space-y-1">
-                <span className="font-semibold text-[#3D200F]">Botdagi cheklov xabari:</span>
-                <p className="italic">"Sizning limitingiz 00:00 da ochiladi"</p>
-                <p className="text-[#9E7D66] text-[10px]">
-                  * Administrator uchun hech qanday cheklov qo'llanmaydi.
+              {/* Botdagi xabar namunasi */}
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-amber-900">
+                  <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
+                  <span>Limit tugaganda botdagi xabar:</span>
+                </div>
+                <p className="italic pl-6 text-amber-900 font-mono text-[13px]">
+                  "Siz bugungi test limitingizdan to'liq foydalandingiz. Limitingiz 00:00 da ochiladi."
+                </p>
+                <p className="text-[11px] text-amber-800 pl-6">
+                  * 00:00 da limit avtomatik ravishda yangilanadi. Administrator uchun esa hech qanday limit qo'llanmaydi.
                 </p>
               </div>
+            </div>
+          </div>
+
+          {/* O'ng ustun: Ma'lumot va tushuntirish */}
+          <div className="space-y-6">
+            <div className="bg-[#FFFFFF] border border-[#E8D8CC] rounded-2xl p-6 shadow-sm space-y-4">
+              <span className="font-bold text-[#3D200F] flex items-center gap-2 text-sm font-heading">
+                <Sparkles className="w-4 h-4 text-[#8C5A3C]" />
+                Mustaqil AI Test Tizimi:
+              </span>
+              <ul className="text-xs space-y-2 text-[#6E4F39] leading-relaxed list-disc pl-4">
+                <li>
+                  <b>AI mustaqil tuzadi:</b> Admindan mavzu, savol turi yoki savol sonini so'rash talab etilmaydi.
+                </li>
+                <li>
+                  <b>Guruh PDF kitobidan:</b> Savollar faqat o'quvchining guruhiga biriktirilgan kitob mazmunidan olinadi.
+                </li>
+                <li>
+                  <b>O'tilgan mavzular doirasida:</b> O'quvchi hali o'tmagan mavzular umuman berilmaydi.
+                </li>
+                <li>
+                  <b>Takrorlanmaslik:</b> O'quvchi to'g'ri yechgan savollar qayta takrorlanmaydi.
+                </li>
+              </ul>
             </div>
 
             {/* Yashirinlik eslatmasi */}
             <div className="bg-[#FAF4EF] border border-[#E8D8CC] rounded-2xl p-5 text-xs text-[#6E4F39] space-y-2">
               <span className="font-bold text-[#3D200F] flex items-center gap-1.5">
-                🔒 Yashirinlik kafolati:
+                🔒 Maxfiylik va yagona tizim:
               </span>
               <p className="text-[11px] leading-relaxed text-[#9E7D66]">
-                Bu sozlamalarning barchasi faqat ushbu admin panelda ko'rinadi. Oddiy foydalanuvchi menyusida faqat <b>"AI Ustoz"</b> va <b>"Arab Tili Testi"</b> tugmalari bo'lib, mexanizm va kitob nomi to'liq yashirin qoladi.
+                Bu yerdagi limit o'zgarishi botda <b>darhol</b> aks etadi. O'quvchi botida esa faqat "AI Ustoz" nomi va o'z guruhi doirasidagi testlar ko'rinadi.
               </p>
             </div>
           </div>

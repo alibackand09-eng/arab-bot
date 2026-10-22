@@ -173,6 +173,105 @@ class BotManager {
                 // Talab 1: "Kechirasiz, vaqtincha nosozlik yuz berdi..." umumiy xato xabari foydalanuvchiga chiqmasin
             }
         });
+        // ========================================================
+        // GLOBAL GURUH KODI MIDDLEWARE (v9.1 XATO 1 TUZATISH)
+        // ========================================================
+        bot.use(async (ctx, next) => {
+            const telegramId = ctx.from?.id;
+            if (!telegramId)
+                return next();
+            const text = (ctx.message?.text || '').trim();
+            const callbackData = ctx.callbackQuery?.data || '';
+            const session = this.getSession(telegramId);
+            // 1. /start, til tanlash (set_lang:), guruh tanlash, /admin va admin paroli tekshiruvlari o'tkazib yuboriladi
+            const isStart = text.startsWith('/start');
+            const isAdminCmd = text === '/admin' || text.startsWith('/admin ') || text.includes('Admin Panel') || text.includes('Админ Панель');
+            const isGroupCallback = callbackData.startsWith('set_lang:') || callbackData.startsWith('choose_group:') || callbackData.startsWith('continue_group:') || callbackData.startsWith('join_group:');
+            const isWaitingAdminPassword = session.state === 'waiting_admin_password';
+            if (isStart || isAdminCmd || isGroupCallback || isWaitingAdminPassword) {
+                return next();
+            }
+            // 2. Foydalanuvchining bazada guruhi bor va shu guruh hali mavjudligini tekshiramiz
+            const userRes = await index_js_1.db.query(`SELECT u.id, u.joined_group_id, g.id as group_id, g.name as group_name, g.is_active
+         FROM users u
+         LEFT JOIN groups g ON g.id = u.joined_group_id
+         WHERE u.telegram_id = $1`, [telegramId]);
+            const user = userRes.rows[0];
+            const hasValidGroup = Boolean(user && user.joined_group_id && user.group_id && user.is_active);
+            // Agar guruh o'chirilgan yoki faol bo'lmasa, bazadagi joined_group_id ni tozalaymiz
+            if (user && user.joined_group_id && (!user.group_id || !user.is_active)) {
+                await index_js_1.db.query('UPDATE users SET joined_group_id = NULL WHERE telegram_id = $1', [telegramId]);
+            }
+            if (hasValidGroup) {
+                return next();
+            }
+            // 3. Foydalanuvchining guruhi bo'lmasa — faqat kod so'raladi va tekshiriladi
+            const lang = await i18n_js_1.I18nService.getUserLanguage(telegramId);
+            // Agar matn yozilgan bo'lsa — admin paneldagi (umumiy bazadagi) guruh kodlari bilan solishtiriladi
+            if (text) {
+                const cleanCode = text.trim().toUpperCase();
+                const groupRes = await index_js_1.db.query(`SELECT * FROM groups WHERE UPPER(TRIM(access_code)) = $1 AND is_active = TRUE LIMIT 1`, [cleanCode]);
+                if (groupRes.rows.length > 0) {
+                    const group = groupRes.rows[0];
+                    await index_js_1.db.query('UPDATE users SET joined_group_id = $1 WHERE telegram_id = $2', [group.id, telegramId]);
+                    session.state = 'idle';
+                    // Yangi guruhga a'zo bo'lganda o'quvchini 1-darsdan boshlash
+                    const progCheck = await index_js_1.db.query('SELECT id FROM user_study_progress WHERE telegram_id = $1 AND group_id = $2', [telegramId, group.id]);
+                    if (progCheck.rows.length === 0) {
+                        await index_js_1.db.query(`INSERT INTO user_study_progress (user_id, telegram_id, group_id, current_topic_index, last_topic_passed, study_step_state)
+               VALUES ($1, $2, $3, 1, 0, 'learning')`, [user.id, telegramId, group.id]);
+                    }
+                    const joinedMsg = lang === 'ru'
+                        ? `✅ <b>Группа подключена! (${group.name})</b>`
+                        : lang === 'en'
+                            ? `✅ <b>Group connected! (${group.name})</b>`
+                            : `✅ <b>Guruhga qo'shildingiz! (${group.name})</b>`;
+                    await ctx.reply(joinedMsg, {
+                        parse_mode: 'HTML',
+                        reply_markup: await keyboards_js_1.BotKeyboards.getMainMenu(lang),
+                    });
+                    if (group.telegram_chat_id && this.bot) {
+                        try {
+                            await this.bot.api.approveChatJoinRequest(group.telegram_chat_id, telegramId);
+                        }
+                        catch { }
+                    }
+                    return;
+                }
+                else {
+                    // Kod mos kelmasa: "Kod topilmadi, qayta kiriting" — menyu ochilmaydi!
+                    const notFoundMsg = lang === 'ru'
+                        ? "❌ Код не найден, введите повторно:"
+                        : lang === 'en'
+                            ? "❌ Code not found, please enter again:"
+                            : "❌ Kod topilmadi, qayta kiriting:";
+                    await ctx.reply(notFoundMsg);
+                    return;
+                }
+            }
+            // Agar inline tugma bosilgan bo'lsa
+            if (ctx.callbackQuery) {
+                await ctx.answerCallbackQuery({
+                    text: lang === 'ru' ? "Сначала введите код группы" : "Avval guruh kodini kiriting",
+                    show_alert: true,
+                });
+                const askMsg = lang === 'ru'
+                    ? "🔒 Введите код группы:"
+                    : lang === 'en'
+                        ? "🔒 Please enter group code:"
+                        : "🔒 Guruh kodini kiriting:";
+                await ctx.reply(askMsg);
+                return;
+            }
+            // Boshqa har qanday xabarda ham faqat kod so'raladi
+            const defaultAskMsg = lang === 'ru'
+                ? "🔒 Введите код группы:"
+                : lang === 'en'
+                    ? "🔒 Please enter group code:"
+                    : "🔒 Guruh kodini kiriting:";
+            await ctx.reply(defaultAskMsg);
+            return;
+        });
         // 1. /start buyrug'i
         bot.command('start', async (ctx) => {
             const telegramId = ctx.from?.id;
@@ -199,57 +298,81 @@ class BotManager {
                 return;
             await this.handleAdminCommand(ctx, telegramId);
         });
-        // 3. Til tanlash callback
+        // 2.1. /ustoz buyrug'i (AI Ustoz darsini boshlash)
+        bot.command('ustoz', async (ctx) => {
+            const telegramId = ctx.from?.id;
+            if (!telegramId)
+                return;
+            const lang = await i18n_js_1.I18nService.getUserLanguage(telegramId);
+            await this.handleAITutorStart(ctx, telegramId, lang);
+        });
+        // 3. Til tanlash callback (Til tanlanganda asosiy menyu emas, guruhini tanlash/kod kiritish so'raladi)
         bot.callbackQuery(/^set_lang:(.+)$/, async (ctx) => {
             const telegramId = ctx.from.id;
             const langCode = ctx.match[1];
             await i18n_js_1.I18nService.setUserLanguage(telegramId, langCode);
             await ctx.answerCallbackQuery({ text: '✅ Saqlandi' });
-            let infoText = '';
-            if (langCode === 'ru') {
-                infoText =
-                    `🌟 <b>Добро пожаловать в онлайн школу арабского языка!</b>\n` +
-                        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-                        `📗 <b>A1 Начальный уровень</b>\n` +
-                        `Алфавит, звуки, махраджи, правила чтения и письма. За первый месяц вы выучите более 150 слов с грамматикой.\n\n` +
-                        `📘 <b>A2 Средний уровень</b>\n` +
-                        `Простые конструкции предложений, разговорная речь, базовая грамматика.\n\n` +
-                        `📙 <b>B1 – B2 Продвинутый уровень</b>\n` +
-                        `Сарф, нахв, свободная речь, академические тексты и практическое общение.\n` +
-                        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-                        `✍️ Чтобы записаться на курс, нажмите кнопку ниже:`;
+            // Foydalanuvchining guruhi bor-yo'qligini bazadan tekshirish
+            const userRes = await index_js_1.db.query(`SELECT u.joined_group_id, g.id as group_id, g.name as group_name, g.is_active
+         FROM users u
+         LEFT JOIN groups g ON g.id = u.joined_group_id
+         WHERE u.telegram_id = $1`, [telegramId]);
+            const user = userRes.rows[0];
+            const hasValidGroup = Boolean(user && user.joined_group_id && user.group_id && user.is_active);
+            // Barcha faol guruhlarni olamiz
+            const groupsRes = await index_js_1.db.query('SELECT id, name, access_code FROM groups WHERE is_active = TRUE ORDER BY id ASC');
+            const groupKb = new grammy_1.InlineKeyboard();
+            // Agar o'quvchi allaqachon biron guruhga biriktirilgan bo'lsa, davom ettirish tugmasi ham beriladi
+            if (hasValidGroup) {
+                const contText = langCode === 'ru'
+                    ? `➡️ Продолжить: «${user.group_name}»`
+                    : langCode === 'en'
+                        ? `➡️ Continue: «${user.group_name}»`
+                        : `➡️ Davom etish: «${user.group_name}»`;
+                groupKb.text(contText, `continue_group:${user.group_id}`).row();
             }
-            else if (langCode === 'en') {
-                infoText =
-                    `🌟 <b>Welcome to Arabic Language Learning Platform!</b>\n` +
-                        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-                        `📗 <b>A1 Beginner Level</b>\n` +
-                        `Alphabet, phonetics, reading and writing rules. Learn 150+ essential vocabulary words in the first month.\n\n` +
-                        `📘 <b>A2 Intermediate</b>\n` +
-                        `Everyday communication, sentences, grammar, and listening comprehension.\n\n` +
-                        `📙 <b>B1 – B2 Advanced</b>\n` +
-                        `Sarf, Nahw, fluent speech, and Quranic Arabic analysis.\n` +
-                        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-                        `✍️ To enroll in a course, click the button below:`;
+            for (const g of groupsRes.rows) {
+                if (!hasValidGroup || g.id !== user.group_id) {
+                    groupKb.text(`📚 ${g.name}`, `choose_group:${g.id}`).row();
+                }
             }
-            else {
-                infoText =
-                    `🌟 <b>Arab tili o'quv botiga xush kelibsiz!</b>\n` +
-                        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-                        `📗 <b>A1 Boshlang'ich Daraja</b>\n` +
-                        `Alifbo, to'g'ri tovushlar va maxrajlar, o'qish-yozish qoidalari hamda 150+ asosiy so'z boyligi.\n\n` +
-                        `📘 <b>A2 O'rta Daraja</b>\n` +
-                        `Sodda gap tuzilmalari, kundalik muloqot, asosiy grammatika va mustaqil matn tushunish.\n\n` +
-                        `📙 <b>B1 – B2 Yuqori Daraja</b>\n` +
-                        `Sarf, nahv, ravon nutq, mumtoz va zamonaviy matnlar tahlili.\n` +
-                        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-                        `✍️ Kursga yozilish yoki ma'lumot olish uchun quyidagi tugmani bosing:`;
-            }
-            const enrollKb = await keyboards_js_1.BotKeyboards.getEnrollKeyboard(langCode);
-            await ctx.reply(infoText, { parse_mode: 'HTML', reply_markup: enrollKb });
-            const mainKb = await keyboards_js_1.BotKeyboards.getMainMenu(langCode);
-            const menuPrompt = langCode === 'ru' ? "Главное меню:" : langCode === 'en' ? "Main Menu:" : "Asosiy menyu:";
+            const chooseMsg = langCode === 'ru'
+                ? "👥 <b>Пожалуйста, выберите вашу группу или введите код доступа:</b>\n\n<i>(Код доступа к группе вы можете получить у преподавателя)</i>"
+                : langCode === 'en'
+                    ? "👥 <b>Please select your group or enter your group code:</b>\n\n<i>(You can get the access code from your teacher)</i>"
+                    : "👥 <b>Iltimos, guruhingizni tanlang yoki guruh kodini kiriting:</b>\n\n<i>(Guruh kodini ustozingizdan yoki o'quv markazidan olasiz)</i>";
+            await ctx.reply(chooseMsg, { parse_mode: 'HTML', reply_markup: groupKb });
+        });
+        // 3.1. Hozirgi guruhda davom etish callback
+        bot.callbackQuery(/^continue_group:(\d+)$/, async (ctx) => {
+            const telegramId = ctx.from.id;
+            const lang = await i18n_js_1.I18nService.getUserLanguage(telegramId);
+            await ctx.answerCallbackQuery();
+            const mainKb = await keyboards_js_1.BotKeyboards.getMainMenu(lang);
+            const menuPrompt = lang === 'ru' ? "Главное меню:" : lang === 'en' ? "Main Menu:" : "Asosiy menyu:";
             await ctx.reply(menuPrompt, { reply_markup: mainKb });
+        });
+        // 3.2. Yangi guruhni tanlash callback (Kodni so'rash)
+        bot.callbackQuery(/^choose_group:(\d+)$/, async (ctx) => {
+            const telegramId = ctx.from.id;
+            const groupId = parseInt(ctx.match[1], 10);
+            const lang = await i18n_js_1.I18nService.getUserLanguage(telegramId);
+            await ctx.answerCallbackQuery();
+            const groupRes = await index_js_1.db.query('SELECT * FROM groups WHERE id = $1 AND is_active = TRUE', [groupId]);
+            if (groupRes.rows.length === 0) {
+                await ctx.reply(lang === 'ru' ? "Группа не найдена." : "Guruh topilmadi.");
+                return;
+            }
+            const group = groupRes.rows[0];
+            const session = this.getSession(telegramId);
+            session.state = 'waiting_group_code';
+            session.selectedGroupId = groupId;
+            const askCodeText = lang === 'ru'
+                ? `🔒 Введите код доступа для группы <b>«${group.name}»</b>:`
+                : lang === 'en'
+                    ? `🔒 Please enter the access code for group <b>«${group.name}»</b>:`
+                    : `🔒 Iltimos, <b>«${group.name}»</b> guruhining kirish kodini kiriting:`;
+            await ctx.reply(askCodeText, { parse_mode: 'HTML' });
         });
         // 4. "Kursga yozilish" callback
         bot.callbackQuery('action_enroll', async (ctx) => {
@@ -258,7 +381,7 @@ class BotManager {
             await ctx.answerCallbackQuery();
             await this.handlePaymentRequest(ctx, telegramId, lang);
         });
-        // 5. Guruh tanlash callback (Kirish kodi so'rash)
+        // 5. Guruh tanlash callback (join_group mosligi)
         bot.callbackQuery(/^join_group:(\d+)$/, async (ctx) => {
             const telegramId = ctx.from.id;
             const groupId = parseInt(ctx.match[1], 10);
@@ -499,7 +622,12 @@ class BotManager {
                 }
                 return;
             }
-            // Agar guruh kodini kutayotgan bo'lsa
+            // Agar global guruh kodini kutayotgan bo'lsa (Talab 2)
+            if (session.state === 'waiting_group_access_code') {
+                await this.handleGlobalGroupCodeVerification(ctx, telegramId, text, lang);
+                return;
+            }
+            // Agar guruh kodini kutayotgan bo'lsa (aniq guruh)
             if (session.state === 'waiting_group_code' && session.selectedGroupId) {
                 await this.handleGroupCodeVerification(ctx, telegramId, text, session.selectedGroupId, lang);
                 return;
@@ -508,6 +636,14 @@ class BotManager {
             // 0. Admin panel menyu tugmasi yoki /admin
             if (text.includes('Admin Panel') || text.includes('Админ Панель') || lower === '/admin') {
                 await this.handleAdminCommand(ctx, telegramId);
+                return;
+            }
+            // TALAB 2: Foydalanuvchi faol guruhga a'zo bo'lishi shart!
+            // Agar guruhga a'zo bo'lmasa, kiritilgan matn guruh kodimi tekshiramiz yoki kod so'raymiz
+            const hasGroup = await this.ensureUserHasValidGroup(ctx, telegramId, lang);
+            if (!hasGroup) {
+                // Agar kiritilgan matn guruh kodi bo'lsa, darhol tekshirib ko'ramiz
+                await this.handleGlobalGroupCodeVerification(ctx, telegramId, text, lang);
                 return;
             }
             // 1. Statistika va Umumiy Reyting menyusi (Barcha guruhlar, bitta tugma orqali ochilib-yopiladi)
@@ -573,7 +709,77 @@ class BotManager {
         await ctx.reply("🔐 <b>Admin Panelga Kirish</b>\n━━━━━━━━━━━━━━━━━━━━\n\nIltimos, admin parolini kiriting:", { parse_mode: 'HTML' });
     }
     /**
-     * Guruh kodini tekshirish
+     * Foydalanuvchining guruhga biriktirilganini va guruh bazada mavjud/faolligini tekshirish (Talab 1 & 2)
+     */
+    async ensureUserHasValidGroup(ctx, telegramId, lang) {
+        const userRes = await index_js_1.db.query(`SELECT u.id, u.joined_group_id, g.id as group_id, g.name as group_name, g.is_active
+       FROM users u
+       LEFT JOIN groups g ON g.id = u.joined_group_id
+       WHERE u.telegram_id = $1`, [telegramId]);
+        const user = userRes.rows[0];
+        // Agar guruh mavjud va faol bo'lsa - ruxsat beriladi
+        if (user && user.joined_group_id && user.group_id && user.is_active) {
+            return true;
+        }
+        // Agar guruh o'chirilgan yoki kodi o'zgartirilgan bo'lsa - xavfsiz tozalaymiz
+        if (user && user.joined_group_id && (!user.group_id || !user.is_active)) {
+            await index_js_1.db.query('UPDATE users SET joined_group_id = NULL WHERE telegram_id = $1', [telegramId]);
+        }
+        const session = this.getSession(telegramId);
+        session.state = 'waiting_group_access_code';
+        const askMsg = lang === 'ru'
+            ? "🔒 <b>Пожалуйста, введите код группы из админ-панели сайта:</b>\n\n(Получите код доступа у своего преподавателя)"
+            : lang === 'en'
+                ? "🔒 <b>Please enter the group access code from the website admin panel:</b>\n\n(Ask your teacher for the access code)"
+                : "🔒 <b>Iltimos, saytdagi (admin paneldagi) guruh kodini kiriting:</b>\n\n(Guruh kodini ustozingizdan yoki o'quv markazidan olasiz)";
+        await ctx.reply(askMsg, { parse_mode: 'HTML' });
+        return false;
+    }
+    /**
+     * Saytdagi (admin paneldagi) guruh kodi orqali tekshirish va biriktirish (Talab 2)
+     */
+    async handleGlobalGroupCodeVerification(ctx, telegramId, enteredCode, lang) {
+        const cleanCode = enteredCode.trim().toUpperCase();
+        // Bazadagi barcha faol guruhlar kodlarini tekshirish
+        const groupsRes = await index_js_1.db.query(`SELECT * FROM groups WHERE UPPER(TRIM(access_code)) = $1 AND is_active = TRUE LIMIT 1`, [cleanCode]);
+        if (groupsRes.rows.length > 0) {
+            const group = groupsRes.rows[0];
+            await index_js_1.db.query('UPDATE users SET joined_group_id = $1 WHERE telegram_id = $2', [group.id, telegramId]);
+            const session = this.getSession(telegramId);
+            session.state = 'idle';
+            let msg = lang === 'ru'
+                ? `✅ <b>Поздравляем!</b> Вы успешно прикреплены к группе <b>${group.name}</b>!`
+                : lang === 'en'
+                    ? `✅ <b>Congratulations!</b> You have been successfully assigned to group <b>${group.name}</b>!`
+                    : `✅ <b>Tabriklaymiz!</b> Siz muvaffaqiyatli <b>${group.name}</b> guruhiga biriktirildingiz!`;
+            if (group.telegram_invite_link) {
+                msg += `\n\n👉 <a href="${group.telegram_invite_link}">Guruh havolasiga o'tish</a>`;
+            }
+            await ctx.reply(msg, {
+                parse_mode: 'HTML',
+                reply_markup: await keyboards_js_1.BotKeyboards.getMainMenu(lang),
+            });
+            if (group.telegram_chat_id && this.bot) {
+                try {
+                    await this.bot.api.approveChatJoinRequest(group.telegram_chat_id, telegramId);
+                }
+                catch { }
+            }
+        }
+        else {
+            // Kod noto'g'ri bo'lsa — bot: "Guruh kodi noto'g'ri. Qaytadan kiriting:" deb qayta kiritishni so'raydi.
+            const session = this.getSession(telegramId);
+            session.state = 'waiting_group_access_code';
+            const errorMsg = lang === 'ru'
+                ? "❌ Неверный код группы. Пожалуйста, введите снова:"
+                : lang === 'en'
+                    ? "❌ Invalid group code. Please try again:"
+                    : "❌ Guruh kodi noto'g'ri. Qaytadan kiriting:";
+            await ctx.reply(errorMsg);
+        }
+    }
+    /**
+     * Guruh kodini tekshirish (aniq guruh uchun)
      */
     async handleGroupCodeVerification(ctx, telegramId, enteredCode, groupId, lang) {
         const groupRes = await index_js_1.db.query('SELECT * FROM groups WHERE id = $1', [groupId]);
@@ -603,7 +809,7 @@ class BotManager {
             }
         }
         else {
-            await ctx.reply("❌ Kod noto'g'ri kiritildi. Iltimos, qaytadan urinib ko'ring:");
+            await ctx.reply("❌ Guruh kodi noto'g'ri. Qaytadan kiriting:");
         }
     }
     /**
@@ -620,13 +826,16 @@ class BotManager {
         await ctx.reply(titleMsg, { parse_mode: 'HTML', reply_markup: keyboard });
     }
     /**
-     * BARCHA GURUHLAR STATISTIKASI VA REYTINGI
-     * Guruh tanlash olib tashlangan — butun maktab bitta reytingda ko'rsatiladi.
-     * Bitta ⬇️ / ⬆️ tugmasi bilan ochilib-yopiladi, bot chati to'lib ketmaydi!
+     * GURUH REYTINGI VA STATISTIKASI (Talab 6)
+     * - Hozirgi ko'rinishi, tugmalari va hamma narsasi qoladi.
+     * - Faqat ma'lumot o'quvchining guruhiga ko'ra chiqadi.
+     * - Boshqa guruhdagilar ko'rinmaydi.
+     * - Guruhdagi boshqalar uchun: faqat o'rni va to'plangan bahosi ko'rinadi.
+     * - O'ziniki esa to'liq chiqadi.
      */
     async renderAllGroupsStatsCard(ctx, telegramId, lang, isExpanded = false, isEdit = false) {
         // 1. Foydalanuvchining o'z ma'lumotlari
-        const userRes = await index_js_1.db.query(`SELECT u.id, u.telegram_id, u.first_name, u.joined_group_id,
+        const userRes = await index_js_1.db.query(`SELECT u.id, u.telegram_id, u.first_name, u.username, u.joined_group_id,
         g.name as group_name,
         COALESCE(SUM(sg.grade), 0) as total_score,
         COUNT(sg.id) as grades_count
@@ -634,20 +843,27 @@ class BotManager {
        LEFT JOIN groups g ON g.id = u.joined_group_id
        LEFT JOIN student_grades sg ON sg.user_id = u.id
        WHERE u.telegram_id = $1
-       GROUP BY u.id, u.telegram_id, u.first_name, u.joined_group_id, g.name`, [telegramId]);
+       GROUP BY u.id, u.telegram_id, u.first_name, u.username, u.joined_group_id, g.name`, [telegramId]);
         const currentUser = userRes.rows[0];
-        // 2. O'quvchilar ro'yxati (Barcha guruhlar bo'yicha opshe ballarga qarab saralash)
+        if (!currentUser || !currentUser.joined_group_id) {
+            await ctx.reply(lang === 'ru'
+                ? "Вы еще не прикреплены к группе. Пожалуйста, введите код группы."
+                : "Siz hali guruhga biriktirilmagansiz. Iltimos, avval guruh kodini kiriting.");
+            return;
+        }
+        const groupId = currentUser.joined_group_id;
+        const groupName = currentUser.group_name || "Guruh";
+        // 2. O'quvchilar ro'yxati — FAQAT shu o'quvchining guruhi bo'yicha (Talab 6)
         const rankingRes = await index_js_1.db.query(`SELECT u.id, u.telegram_id, u.first_name, u.username,
-        COALESCE(g.name, 'Guruhsiz') as group_name,
         COALESCE(SUM(sg.grade), 0) as total_score,
         COUNT(sg.id) as grades_count
        FROM users u
-       LEFT JOIN groups g ON g.id = u.joined_group_id
        LEFT JOIN student_grades sg ON sg.user_id = u.id
-       GROUP BY u.id, u.telegram_id, u.first_name, u.username, g.name
-       ORDER BY total_score DESC, u.id ASC`);
+       WHERE u.joined_group_id = $1
+       GROUP BY u.id, u.telegram_id, u.first_name, u.username
+       ORDER BY total_score DESC, u.id ASC`, [groupId]);
         const rankingList = rankingRes.rows;
-        // 3. Foydalanuvchining o'rni
+        // 3. Foydalanuvchining guruhdagi o'rni
         let userRank = -1;
         for (let i = 0; i < rankingList.length; i++) {
             if (Number(rankingList[i].telegram_id) === Number(telegramId)) {
@@ -655,44 +871,38 @@ class BotManager {
                 break;
             }
         }
-        let report = `📊 <b>O'QUVCHILAR REYTINGI VA STATISTIKASI</b>\n`;
+        let report = `📊 <b>GURUH REYTINGI VA STATISTIKASI</b>\n`;
         report += `━━━━━━━━━━━━━━━━━━━━\n`;
-        if (currentUser) {
-            const userGroup = currentUser.group_name ? currentUser.group_name : "Guruhsiz";
-            report += `🏫 <b>Sizning guruhingiz:</b> <b>${userGroup}</b>\n`;
-            if (userRank > 0) {
-                report += `🏆 <b>Sizning o'rningiz:</b> <b>${userRank}-o'rin</b> (umumiy reytingda)\n`;
-            }
-            report += `⭐️ <b>Sizning jami ballingiz:</b> <b>${currentUser.total_score} ball</b>\n`;
-            report += `📝 <b>Qo'yilgan jami baholar soni:</b> <b>${currentUser.grades_count} ta baho</b>\n`;
+        report += `🏫 <b>Guruhingiz:</b> <b>${groupName}</b>\n`;
+        if (userRank > 0) {
+            report += `🏆 <b>Sizning o'rningiz:</b> <b>${userRank}-o'rin</b>\n`;
         }
-        else {
-            report += `ℹ️ <i>Siz hali tizimda baholanmagansiz</i>\n`;
-        }
+        report += `⭐️ <b>Sizning jami ballingiz:</b> <b>${currentUser.total_score} ball</b>\n`;
+        report += `📝 <b>Qo'yilgan jami baholar soni:</b> <b>${currentUser.grades_count} ta baho</b>\n`;
         report += `━━━━━━━━━━━━━━━━━━━━\n`;
         if (isExpanded) {
-            report += `🏅 <b>Umumiy Reyting Jadvali (Barcha guruhlar):</b>\n\n`;
+            report += `🏅 <b>Guruhdagi Reyting Jadvali:</b>\n\n`;
             if (rankingList.length === 0) {
-                report += `<i>Hozircha reytingda o'quvchilar yo'q.</i>\n`;
+                report += `<i>Hozircha guruhda boshqa natijalar yo'q.</i>\n`;
             }
             else {
                 rankingList.forEach((st, idx) => {
                     const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `<b>#${idx + 1}</b>`;
-                    const name = st.first_name || (st.username ? `@${st.username}` : `O'quvchi`);
                     const isMe = Number(st.telegram_id) === Number(telegramId);
                     if (isMe) {
-                        report += `${medal} <b>${name}</b> [<i>${st.group_name}</i>] — ⭐️ <b>${st.total_score} ball</b> (${st.grades_count} ta baho) 👈 (Siz)\n`;
+                        const myName = currentUser.first_name || (currentUser.username ? `@${currentUser.username}` : `O'quvchi`);
+                        report += `${medal} <b>${myName}</b> — ⭐️ <b>${st.total_score} ball</b> (${st.grades_count} ta baho) 👈 (Siz)\n`;
                     }
                     else {
-                        // Boshqa foydalanuvchilar haqida faqat o'rin va umumiy baholar ko'rinadi (guruhi ko'rinmaydi)
-                        report += `${medal} <b>${name}</b> — ⭐️ <b>${st.total_score} ball</b> (${st.grades_count} ta baho)\n`;
+                        // TALAB 6: Guruhdagi boshqalar uchun: faqat o'rni va to'plangan bahosi ko'rinadi
+                        report += `${medal} — ⭐️ <b>${st.total_score} ball</b>\n`;
                     }
                 });
             }
             report += `━━━━━━━━━━━━━━━━━━━━\n`;
         }
         else {
-            report += `💡 <i>Barcha guruhlarning to'liq reyting jadvalini ko'rish uchun pastdagi tugmani bosing:</i>\n`;
+            report += `💡 <i>Guruhning to'liq reytingini ko'rish uchun pastdagi tugmani bosing:</i>\n`;
         }
         const kb = keyboards_js_1.BotKeyboards.getStatsToggleKeyboard(isExpanded, lang);
         if (isEdit && ctx.chat) {
@@ -740,7 +950,7 @@ class BotManager {
         });
     }
     /**
-     * Test boshlash (Band 1 & 5: Kitob va mavzular asosida qattiq test, umumiy xato xabarisiz)
+     * Test boshlash (Talab 4: AI mustaqil tuzadi, faqat guruh PDF kitobidan, yetib kelgan mavzular doirasida, qiyin va aniq)
      */
     async startQuiz(ctx, telegramId, lang, isDaily = true) {
         const waitMsg = await ctx.reply("⏳ <i>Arab tili test savollari tayyorlanmoqda...</i>", { parse_mode: 'HTML' });
@@ -750,38 +960,48 @@ class BotManager {
          WHERE telegram_id = $1 AND is_correct = TRUE 
          ORDER BY question ASC LIMIT 50`, [telegramId]);
             const excludedQuestions = prevCorrectRes.rows.map((r) => r.question);
-            // 2. Admin panelda sozlangan test parametrlarini yuklaymiz
-            const tSettingsRes = await index_js_1.db.query('SELECT * FROM test_settings LIMIT 1');
-            const tSettings = tSettingsRes.rows[0];
-            const bookText = tSettings?.book_text || undefined;
-            const topicsRange = tSettings?.selected_topics || 'all';
-            let questionTypes = undefined;
-            try {
-                if (tSettings?.question_types) {
-                    questionTypes = typeof tSettings.question_types === 'string'
-                        ? JSON.parse(tSettings.question_types)
-                        : tSettings.question_types;
-                }
+            // 2. Foydalanuvchining guruhidagi PDF kitob matnini olamiz (Talab 2: faqat guruh PDF kitobi)
+            const userRes = await index_js_1.db.query('SELECT joined_group_id FROM users WHERE telegram_id = $1', [telegramId]);
+            const groupId = userRes.rows[0]?.joined_group_id;
+            if (!groupId) {
+                await ctx.reply(lang === 'ru' ? "🔒 Введите код группы:" : "🔒 Guruh kodini kiriting:");
+                return;
             }
-            catch { }
-            const qCount = tSettings?.question_count ? Number(tSettings.question_count) : 5;
+            const grpRes = await index_js_1.db.query('SELECT book_text FROM groups WHERE id = $1', [groupId]);
+            const bookText = grpRes.rows[0]?.book_text;
+            // Agar guruhda kitob matni bo'lmasa — muloyim xabar (boshqa kitobga o'tilmaydi!)
+            if (!bookText || !bookText.trim()) {
+                const noBookMsg = lang === 'ru'
+                    ? "📖 Учитель еще не загрузил учебник для вашей группы. Тест будет доступен после загрузки книги."
+                    : "📖 Guruhingizga hali darslik kitobi yuklanmagan. Ustoz kitob yuklaganidan so'ng test topshirishingiz mumkin.";
+                await ctx.reply(noBookMsg);
+                return;
+            }
+            // 3. O'quvchi yetib kelgan mavzular doirasini aniqlash (faqat shu guruh progressi bo'yicha)
+            const progRes = await index_js_1.db.query('SELECT current_topic_index, last_topic_passed FROM user_study_progress WHERE telegram_id = $1 AND group_id = $2', [telegramId, groupId]);
+            const passedTopic = progRes.rows[0]?.last_topic_passed || 0;
+            const currentTopic = progRes.rows[0]?.current_topic_index || 1;
+            const reachedTopicMax = Math.max(1, passedTopic, currentTopic);
+            const topicsRange = `1-${reachedTopicMax}-darslar doirasi (lug'atlar va mashqlar)`;
+            // Faqat o'quvchi yetib kelgan darslar matni va mashqlarini olamiz
+            const studiedText = pdfBook_js_1.PdfBookService.extractLessonsUpTo(bookText, reachedTopicMax);
+            // 4. AI mustaqil ravishda darslikdagi so'zlar va mashqlar asosida 5 ta savol tuzadi
             let questions = [];
             try {
                 questions = await gemini_js_1.GeminiService.generateHardTestQuestions({
-                    bookText,
+                    bookText: studiedText,
                     topicsRange,
-                    questionTypes,
-                    count: qCount,
+                    count: 5,
                     excludedQuestions,
                     lang,
                 });
             }
             catch (genErr) {
                 console.warn('generateHardTestQuestions error, fallback questions ishlatiladi:', genErr);
-                questions = gemini_js_1.GeminiService.getFilteredFallbackQuestions(lang, excludedQuestions).slice(0, qCount);
+                questions = gemini_js_1.GeminiService.getFilteredFallbackQuestions(lang, excludedQuestions).slice(0, 5);
             }
             if (!questions || questions.length === 0) {
-                questions = gemini_js_1.GeminiService.getFilteredFallbackQuestions(lang).slice(0, qCount);
+                questions = gemini_js_1.GeminiService.getFilteredFallbackQuestions(lang).slice(0, 5);
             }
             const session = this.getSession(telegramId);
             session.state = 'taking_test';
@@ -939,75 +1159,84 @@ class BotManager {
         // 1. Foydalanuvchi ma'lumotlarini olish
         const userRes = await index_js_1.db.query('SELECT * FROM users WHERE telegram_id = $1', [telegramId]);
         const user = userRes.rows[0];
-        if (!user)
+        if (!user || !user.joined_group_id) {
+            await ctx.reply(lang === 'ru' ? "🔒 Введите код группы:" : "🔒 Guruh kodini kiriting:");
             return;
-        // 2. Mavzular ro'yxatini shakllantirish (Guruh kitobi yoki default darslik)
+        }
+        const groupId = user.joined_group_id;
+        const grpRes = await index_js_1.db.query('SELECT * FROM groups WHERE id = $1', [groupId]);
+        const group = grpRes.rows[0];
+        if (!group || !group.is_active) {
+            await index_js_1.db.query('UPDATE users SET joined_group_id = NULL WHERE telegram_id = $1', [telegramId]);
+            await ctx.reply(lang === 'ru' ? "Группа не найдена. Введите код группы:" : "Guruh topilmadi. Guruh kodini kiriting:");
+            return;
+        }
+        // 2. Guruh kitobining mavzulari va matnini tekshirish (Talab 2: Guruhning PDF'i yo'q bo'lsa: "Ustoz hali kitob yuklamagan")
         let topics = [];
-        if (user.joined_group_id) {
-            const grpRes = await index_js_1.db.query('SELECT book_topics FROM groups WHERE id = $1', [user.joined_group_id]);
-            const rawTopics = grpRes.rows[0]?.book_topics;
-            if (rawTopics) {
-                try {
-                    const parsed = typeof rawTopics === 'string' ? JSON.parse(rawTopics) : rawTopics;
-                    if (Array.isArray(parsed) && parsed.length > 0) {
-                        topics = parsed.map((t) => ({
-                            number: Number(t.topic_number || t.number || 1),
-                            title: String(t.title || `Mavzu ${t.number}`),
-                            summary: String(t.content_summary || t.summary || ''),
-                            rules: String(t.key_rules || t.rules || ''),
-                        }));
-                    }
+        if (group.book_topics) {
+            try {
+                const parsed = typeof group.book_topics === 'string' ? JSON.parse(group.book_topics) : group.book_topics;
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    topics = parsed.map((t) => ({
+                        number: Number(t.topic_number || t.number || 1),
+                        title: String(t.title || `Mavzu ${t.number}`),
+                        summary: String(t.content_summary || t.summary || ''),
+                        rules: String(t.key_rules || t.rules || ''),
+                    }));
                 }
-                catch { }
             }
+            catch { }
         }
-        if (topics.length === 0) {
-            topics = [...pdfBook_js_1.PdfBookService.getDefaultTopics()];
+        if (topics.length === 0 || !group.book_text) {
+            const noBookMsg = lang === 'ru'
+                ? "📖 Учитель еще не загрузил учебник для этой группы. Пожалуйста, подождите, пока учитель загрузит книгу."
+                : "📖 Ustoz hali kitob yuklamagan. Iltimos, ustoz ushbu guruhga kitob yuklashini kuting.";
+            await ctx.reply(noBookMsg, { reply_markup: exitKb });
+            return;
         }
-        // 3. user_study_progress jadvalidan o'quvchi bosqichini olish
-        const progRes = await index_js_1.db.query('SELECT * FROM user_study_progress WHERE telegram_id = $1', [telegramId]);
+        // 3. user_study_progress jadvalidan o'quvchi bosqichini olish (Talab 2: Har o'quvchining progressi (user_id, group_id) bo'yicha saqlanadi)
+        let progRes = await index_js_1.db.query('SELECT * FROM user_study_progress WHERE telegram_id = $1 AND group_id = $2', [telegramId, groupId]);
         let progress = progRes.rows[0];
         if (!progress) {
-            const insRes = await index_js_1.db.query(`INSERT INTO user_study_progress (user_id, telegram_id, current_topic_index, last_topic_passed, study_step_state)
-         VALUES ($1, $2, 1, 0, 'learning') RETURNING *`, [user.id, telegramId]);
-            progress = insRes.rows[0];
+            await index_js_1.db.query(`INSERT INTO user_study_progress (user_id, telegram_id, group_id, current_topic_index, last_topic_passed, study_step_state)
+         VALUES ($1, $2, $3, 1, 0, 'learning')`, [user.id, telegramId, groupId]);
+            progRes = await index_js_1.db.query('SELECT * FROM user_study_progress WHERE telegram_id = $1 AND group_id = $2', [telegramId, groupId]);
+            progress = progRes.rows[0];
         }
         // Agar o'quvchi oldingi mavzu savolidan yiqilib, admin tomonidan belgilanishini kutayotgan bo'lsa
-        if (progress.study_step_state === 'blocked_review_failed') {
+        if (progress?.study_step_state === 'blocked_review_failed') {
             await ctx.reply(`⚠️ <b>Darslar vaqtincha to'xtatilgan</b>\n━━━━━━━━━━━━━━━━━━━━\n\n` +
                 `Siz o'tilgan mavzular bo'yicha nazorat savolidan o'ta olmadingiz. Bu haqda ustozga (adminga) xabar berildi.\n\n` +
                 `Ustoz siz uchun qaysi mavzudan qayta boshlashni belgilaganidan so'ng darslarimiz davom etadi. Iltimos, kuting!`, { parse_mode: 'HTML', reply_markup: exitKb });
             return;
         }
-        // Agar hozirda javob kutilayotgan faol savol bo'lsa
-        if (progress.study_step_state === 'waiting_answer' && progress.active_question) {
-            session.activeStudyTopicNumber = progress.current_topic_index;
-            session.activeStudyQuestion = progress.active_question;
-            session.activeStudyQuestionType = progress.active_question_type || 'check';
-            await ctx.reply(`📚 <b>AI Ustoz darsi davom etmoqda</b>\n━━━━━━━━━━━━━━━━━━━━\n\n` +
-                `Sizga berilgan savol:\n<b>${progress.active_question}</b>\n\n` +
-                `<i>Iltimos, javobingizni yozib yuboring:</i>`, { parse_mode: 'HTML', reply_markup: exitKb });
-            return;
-        }
-        // Yangi mavzu darsini boshlash
-        const currentTopicNum = progress.current_topic_index || 1;
-        const currentTopic = topics.find(t => t.number === currentTopicNum) || topics[0];
+        // Yangi odam uchun yoki joriy mavzu (har bir yangi odamga 1-darsdan boshlanadi)
+        const currentTopicNum = progress?.current_topic_index || 1;
+        const currentTopic = topics.find(t => t.number === currentTopicNum) || topics[0] || {
+            number: 1,
+            title: "1-dars: Dastlabki so'zlar",
+            summary: "Dastlabki so'zlar va buyumlar",
+            rules: ""
+        };
         await ctx.replyWithChatAction('typing').catch(() => { });
         const studentName = user.first_name || 'O\'quvchi';
-        const lessonResult = await gemini_js_1.GeminiService.teachTopicLesson(currentTopic, studentName, lang);
+        // Aynan shu darsning PDF kitobidagi matnini ajratib olamiz
+        const lessonText = pdfBook_js_1.PdfBookService.extractLessonText(group.book_text, currentTopic.number);
+        const lessonResult = await gemini_js_1.GeminiService.teachTopicLesson(currentTopic, studentName, lang, lessonText);
+        session.state = 'chatting_with_ai_tutor';
         session.activeStudyTopicNumber = currentTopic.number;
         session.activeStudyQuestion = lessonResult.question;
         session.activeStudyQuestionType = 'check';
         await index_js_1.db.query(`UPDATE user_study_progress 
        SET active_question = $1, active_question_type = 'check', study_step_state = 'waiting_answer', updated_at = CURRENT_TIMESTAMP
-       WHERE telegram_id = $2`, [lessonResult.question, telegramId]);
-        const fullLessonMsg = `📖 <b>${currentTopic.number}-Mavzu: ${currentTopic.title}</b>\n` +
+       WHERE telegram_id = $2 AND group_id = $3`, [lessonResult.question, telegramId, groupId]);
+        const fullLessonMsg = `📖 <b>${currentTopic.number}-Dars: ${currentTopic.title}</b>\n` +
             `━━━━━━━━━━━━━━━━━━━━\n\n` +
             `${lessonResult.lessonText}\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
-            `❓ <b>Mavzu yuzasidan tekshiruv savoli:</b>\n` +
+            `❓ <b>Mavzu yuzasidan savol:</b>\n` +
             `<b>${lessonResult.question}</b>\n\n` +
-            `<i>Tushunganingiz asosida javobingizni yozib yuboring:</i>`;
+            `<i>Javobingizni quyida yozib yuboring:</i>`;
         await ctx.reply(fullLessonMsg, { parse_mode: 'HTML', reply_markup: exitKb });
     }
     /**
@@ -1018,50 +1247,54 @@ class BotManager {
         const exitKb = keyboards_js_1.BotKeyboards.getAITutorExitKeyboard(lang);
         const userRes = await index_js_1.db.query('SELECT * FROM users WHERE telegram_id = $1', [telegramId]);
         const user = userRes.rows[0];
-        if (!user)
+        if (!user || !user.joined_group_id) {
+            await ctx.reply(lang === 'ru' ? "🔒 Введите код группы:" : "🔒 Guruh kodini kiriting:");
             return;
-        const progRes = await index_js_1.db.query('SELECT * FROM user_study_progress WHERE telegram_id = $1', [telegramId]);
+        }
+        const groupId = user.joined_group_id;
+        const grpRes = await index_js_1.db.query('SELECT * FROM groups WHERE id = $1', [groupId]);
+        const group = grpRes.rows[0];
+        if (!group || !group.book_topics || !group.book_text) {
+            await ctx.reply("📖 Ustoz hali kitob yuklamagan. Iltimos, kuting.", { reply_markup: exitKb });
+            return;
+        }
+        const progRes = await index_js_1.db.query('SELECT * FROM user_study_progress WHERE telegram_id = $1 AND group_id = $2', [telegramId, groupId]);
         const progress = progRes.rows[0];
         if (!progress || progress.study_step_state === 'blocked_review_failed') {
             await ctx.reply(`⚠️ Darslar to'xtatilgan. Ustoz (admin) qayta boshlash mavzusini belgilashini kuting!`, { reply_markup: exitKb });
             return;
         }
-        // Guruh yoki standart mavzular
+        // Guruh mavzulari
         let topics = [];
-        if (user.joined_group_id) {
-            const grpRes = await index_js_1.db.query('SELECT book_topics FROM groups WHERE id = $1', [user.joined_group_id]);
-            const rawTopics = grpRes.rows[0]?.book_topics;
-            if (rawTopics) {
-                try {
-                    const parsed = typeof rawTopics === 'string' ? JSON.parse(rawTopics) : rawTopics;
-                    if (Array.isArray(parsed) && parsed.length > 0) {
-                        topics = parsed.map((t) => ({
-                            number: Number(t.topic_number || t.number || 1),
-                            title: String(t.title || `Mavzu ${t.number}`),
-                            summary: String(t.content_summary || t.summary || ''),
-                            rules: String(t.key_rules || t.rules || ''),
-                        }));
-                    }
-                }
-                catch { }
+        try {
+            const parsed = typeof group.book_topics === 'string' ? JSON.parse(group.book_topics) : group.book_topics;
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                topics = parsed.map((t) => ({
+                    number: Number(t.topic_number || t.number || 1),
+                    title: String(t.title || `Mavzu ${t.number}`),
+                    summary: String(t.content_summary || t.summary || ''),
+                    rules: String(t.key_rules || t.rules || ''),
+                }));
             }
         }
+        catch { }
         if (topics.length === 0) {
-            topics = [...pdfBook_js_1.PdfBookService.getDefaultTopics()];
+            await ctx.reply("📖 Ustoz hali kitob yuklamagan.", { reply_markup: exitKb });
+            return;
         }
         const currentTopicNum = progress.current_topic_index || 1;
         const currentTopic = topics.find(t => t.number === currentTopicNum) || topics[0];
         const question = session.activeStudyQuestion || progress.active_question || 'Arab tili qoidasi';
         const qType = session.activeStudyQuestionType || progress.active_question_type || 'check';
         await ctx.replyWithChatAction('typing').catch(() => { });
-        // Javobni AI orqali mulohaza qilish
+        // Javobni AI orqali faqat guruh kitobi matni doirasida baholash
         const evalResult = await gemini_js_1.GeminiService.evaluateStudentAnswer(currentTopic.title, question, text, qType === 'review', lang);
         if (qType === 'check') {
             if (evalResult.isPassed) {
                 // Joriy mavzu savolidan o'tdi!
                 await index_js_1.db.query(`UPDATE user_study_progress 
            SET last_topic_passed = $1, updated_at = CURRENT_TIMESTAMP
-           WHERE telegram_id = $2`, [currentTopicNum, telegramId]);
+           WHERE telegram_id = $2 AND group_id = $3`, [currentTopicNum, telegramId, groupId]);
                 // Vaqti-vaqti bilan (masalan, 2-mavzudan boshlab har 2-mavzuda) oldingi mavzulardan nazorat savoli
                 const shouldReview = currentTopicNum > 1 && (currentTopicNum % 2 === 0);
                 if (shouldReview) {
@@ -1073,7 +1306,7 @@ class BotManager {
                     session.activeStudyReviewTopicNumber = prevTopic.number;
                     await index_js_1.db.query(`UPDATE user_study_progress 
              SET active_question = $1, active_question_type = 'review', study_step_state = 'waiting_answer', updated_at = CURRENT_TIMESTAMP
-             WHERE telegram_id = $2`, [reviewQ.question, telegramId]);
+             WHERE telegram_id = $2 AND group_id = $3`, [reviewQ.question, telegramId, groupId]);
                     const praiseAndReview = `🎉 <b>Barakalla!</b> ${evalResult.feedback}\n\n` +
                         `━━━━━━━━━━━━━━━━━━━━\n` +
                         `🔄 <b>Mustahkamlash: Oldingi o'tilgan mavzudan jiddiy nazorat savoli</b>\n` +
@@ -1083,7 +1316,7 @@ class BotManager {
                     return;
                 }
                 // Agar review bo'lmasa, keyingi darsga o'tamiz
-                await this.advanceToNextTopic(ctx, telegramId, currentTopicNum, topics, user, lang, exitKb);
+                await this.advanceToNextTopic(ctx, telegramId, currentTopicNum, topics, user, lang, exitKb, groupId, group.book_text);
             }
             else {
                 // Joriy mavzu savolidan o'tolmadi
@@ -1099,7 +1332,7 @@ class BotManager {
                 // Reviewdan o'tdi!
                 await ctx.reply(`🌟 <b>Ofarin!</b> Oldingi mavzuni ham puxta eslab qolibsiz!\n${evalResult.feedback}\n\n` +
                     `Endi navbatdagi yangi darsimizga o'tamiz...`, { parse_mode: 'HTML' });
-                await this.advanceToNextTopic(ctx, telegramId, currentTopicNum, topics, user, lang, exitKb);
+                await this.advanceToNextTopic(ctx, telegramId, currentTopicNum, topics, user, lang, exitKb, groupId, group.book_text);
             }
             else {
                 // Reviewdan O'TOLMADI!
@@ -1118,7 +1351,7 @@ class BotManager {
                 ]);
                 await index_js_1.db.query(`UPDATE user_study_progress 
            SET study_step_state = 'blocked_review_failed', review_fail_count = review_fail_count + 1, updated_at = CURRENT_TIMESTAMP
-           WHERE telegram_id = $1`, [telegramId]);
+           WHERE telegram_id = $1 AND group_id = $2`, [telegramId, groupId]);
                 // Adminga Telegram bot orqali ham xabar yuborish
                 if (config_js_1.config.adminId) {
                     const adminAlertText = `🔔 <b>DIQQAT! O'quvchi darsdan o'tolmadi</b>\n━━━━━━━━━━━━━━━━━━━━\n` +
@@ -1136,32 +1369,33 @@ class BotManager {
         }
     }
     /**
-     * Keyingi mavzuga o'tish va dars berish
+     * Keyingi mavzuga o'tish va dars berish (faqat guruh PDF kitobidan)
      */
-    async advanceToNextTopic(ctx, telegramId, currentTopicNum, topics, user, lang, exitKb) {
+    async advanceToNextTopic(ctx, telegramId, currentTopicNum, topics, user, lang, exitKb, groupId, bookText) {
         const nextTopicNum = currentTopicNum + 1;
         const nextTopic = topics.find(t => t.number === nextTopicNum);
         if (!nextTopic) {
             await index_js_1.db.query(`UPDATE user_study_progress 
          SET study_step_state = 'completed', updated_at = CURRENT_TIMESTAMP
-         WHERE telegram_id = $1`, [telegramId]);
+         WHERE telegram_id = $1 AND group_id = $2`, [telegramId, groupId]);
             await ctx.reply(`🏆 <b>TABRIKLAYMIZ!</b>\n━━━━━━━━━━━━━━━━━━━━\n\n` +
                 `Siz darslikning barcha mavzularini muvaffaqiyatli o'zlashtirib yakunladingiz! Arab tili bo'yicha ilmingiz bardavom bo'lsin!`, { parse_mode: 'HTML', reply_markup: exitKb });
             return;
         }
         await index_js_1.db.query(`UPDATE user_study_progress 
        SET current_topic_index = $1, study_step_state = 'learning', updated_at = CURRENT_TIMESTAMP
-       WHERE telegram_id = $2`, [nextTopicNum, telegramId]);
+       WHERE telegram_id = $2 AND group_id = $3`, [nextTopicNum, telegramId, groupId]);
         await ctx.replyWithChatAction('typing').catch(() => { });
         const studentName = user.first_name || 'O\'quvchi';
-        const lessonResult = await gemini_js_1.GeminiService.teachTopicLesson(nextTopic, studentName, lang);
+        const lessonText = pdfBook_js_1.PdfBookService.extractLessonText(bookText, nextTopic.number);
+        const lessonResult = await gemini_js_1.GeminiService.teachTopicLesson(nextTopic, studentName, lang, lessonText);
         const session = this.getSession(telegramId);
         session.activeStudyTopicNumber = nextTopic.number;
         session.activeStudyQuestion = lessonResult.question;
         session.activeStudyQuestionType = 'check';
         await index_js_1.db.query(`UPDATE user_study_progress 
        SET active_question = $1, active_question_type = 'check', study_step_state = 'waiting_answer', updated_at = CURRENT_TIMESTAMP
-       WHERE telegram_id = $2`, [lessonResult.question, telegramId]);
+       WHERE telegram_id = $2 AND group_id = $3`, [lessonResult.question, telegramId, groupId]);
         const fullMsg = `🎉 <b>Ofarin! Navbatdagi darsga o'tamiz:</b>\n\n` +
             `📖 <b>${nextTopic.number}-Mavzu: ${nextTopic.title}</b>\n` +
             `━━━━━━━━━━━━━━━━━━━━\n\n` +

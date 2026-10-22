@@ -16,12 +16,31 @@ export class PdfBookService {
    */
   public static async extractTextFromPdf(filePath: string): Promise<string> {
     try {
-      const dataBuffer = fs.readFileSync(filePath);
-      // dynamic import for CommonJS pdf-parse module
+      let resolvedPath = filePath;
+      if (!fs.existsSync(resolvedPath)) {
+        const cleanRel = filePath.replace(/^[/\\]+/, '');
+        resolvedPath = path.resolve(process.cwd(), cleanRel);
+      }
+      if (!fs.existsSync(resolvedPath)) {
+        console.warn('⚠️ [PDF Parse]: File not found:', filePath, '->', resolvedPath);
+        return '';
+      }
+      const dataBuffer = fs.readFileSync(resolvedPath);
       const pdfParseModule = await import('pdf-parse');
+      // v2 API: { PDFParse }
+      if ((pdfParseModule as any).PDFParse) {
+        const PDFParseClass = (pdfParseModule as any).PDFParse;
+        const parser = new PDFParseClass({ data: dataBuffer });
+        const res = await parser.getText();
+        return (res?.text || '').trim();
+      }
+      // v1 fallback
       const pdf = (pdfParseModule as any).default || pdfParseModule;
-      const parsed = await pdf(dataBuffer);
-      return (parsed.text || '').trim();
+      if (typeof pdf === 'function') {
+        const parsed = await pdf(dataBuffer);
+        return (parsed.text || '').trim();
+      }
+      return '';
     } catch (err) {
       console.warn('⚠️ [PDF Parse Error]:', err);
       return '';
@@ -90,64 +109,84 @@ Javobni FAQAT toza JSON formatida quyidagicha qaytaring:
     return [
       {
         number: 1,
-        title: "1-dars: Arab harflari va to'g'ri maxrajlar",
-        summary: "Arab alifbosidagi 28 ta harf, ularning nomlari, yozilishi va to'g'ri talaffuz maxrajlari.",
-        rules: "Harflarning kalima boshida, o'rtasida va oxirida yozilishi hamda o'zidan keyingi harfga ulanmaydigan harflar."
+        title: "1-dars: Dastlabki so'zlar va buyumlar",
+        summary: "Kitob, qalam, daftar, chizg'ich, doska, qog'oz kabi asosiy so'zlar va ularning ma'nolari.",
+        rules: "Asosiy buyum nomlari, «Bu nima?» (ما هذا) va «Qayerda?» (أين) so'roqlari."
       },
       {
         number: 2,
-        title: "2-dars: Qisqa unlilar — Harakatlar (Fatha, Kasra, Damma)",
-        summary: "Harakatlarning vazifasi va ularning harflar bilan to'g'ri talaffuzi.",
-        rules: "Fatha [a]/[o] tovushi, Kasra [i] tovushi, Damma [u] tovushi. Yo'g'on va ingichka harflarda talaffuz farqlari."
+        title: "2-dars: Ko'rsatish olmoshlari va so'z boyligi",
+        summary: "Yaqin va uzoq buyumlarni ko'rsatish, darslikdagi yangi so'zlar va matnlar.",
+        rules: "Haza (هذا) va Zalika (ذلك) bilan sodda birikmalar tuzish."
       },
       {
         number: 3,
-        title: "3-dars: Sukun va Tanvin qoidalari",
-        summary: "Unlisiz harf (sukun) va otlar oxiridagi noaniqlik belgisi (tanvin).",
-        rules: "Sukun (ْ ) unlisiz to'xtash. Tanvin (an, in, un) tovushlari va ularning yozilishi."
+        title: "3-dars: Maktab va sinf buyumlari",
+        summary: "Sinfdagi jihozlar, ularning o'rni va darslikdagi mashqlar.",
+        rules: "Buyumlarning joylashuvi va ularni ifodalash."
       },
       {
         number: 4,
-        title: "4-dars: Cho'ziq unlilar (Mad harflari)",
-        summary: "Alif, Vov va Yo harflari orqali cho'zib o'qish qoidalari.",
-        rules: "Fathadan keyin sokin alif, kasradan keyin sokin yo, dammadan keyin sokin vov kelsa 2 harakat cho'ziladi."
+        title: "4-dars: Uy va oila a'zolari",
+        summary: "Uy buyumlari, sodda kundalik so'zlar va tarjimalar.",
+        rules: "Ismlarning birikmalari va sodda gaplar."
       },
       {
         number: 5,
-        title: "5-dars: Tashdid (Shadda) qoidasi",
-        summary: "Ikkilangan harflar va ularning to'g'ri talaffuzi.",
-        rules: "Shadda (ّ ) bitta harfni ikkita qilib o'qitadi: birinchisi sokin, ikkinchisi harakatli."
-      },
-      {
-        number: 6,
-        title: "6-dars: Shamsiy va Qamariy harflar (Alif-Lom qoidasi)",
-        summary: "Aniqlik artikli (ال) ning harflarga ulanish qoidalari.",
-        rules: "Qamariy harflarda 'Lam' o'qiladi (al-kitabu), Shamsiy harflarda 'Lam' o'qilmay shadda bilan o'qiladi (ash-shamsu)."
-      },
-      {
-        number: 7,
-        title: "7-dars: Ko'rsatish olmoshlari (Haza va Hazihi)",
-        summary: "Yaqindagi narsalarni ko'rsatish: muzakkar (erkak) va muannas (ayol) jinsi.",
-        rules: "Haza (هَذَا) muzakkar uchun, Hazihi (هَذِهِ) muannas (oxirida ta-marbuta bo'lgan) so'zlar uchun."
-      },
-      {
-        number: 8,
-        title: "8-dars: Uzoqqa ko'rsatish olmoshlari (Zalika va Tilka)",
-        summary: "Uzoqdagi narsalarni ko'rsatish va sodda jumlalar tuzish.",
-        rules: "Zalika (ذَلِكَ) muzakkar, Tilka (تِلْكَ) muannas uchun ishlatiladi."
-      },
-      {
-        number: 9,
-        title: "9-dars: Bog'langan olmoshlar va egalik qo'shimchalari",
-        summary: "Mening kitobim, sening qalaming kabi so'zlarni yasash.",
-        rules: "Kitabiy (كِتَابِي) — mening kitobim, Kitabuka (كِتَابُكَ) — sening kitobing, Kitabuhu (كِتَابُهُ) — uning kitobi."
-      },
-      {
-        number: 10,
-        title: "10-dars: Sodda ismiy jumlalar (Mubtada va Xabar)",
-        summary: "Arab tilida ega va kesim orqali to'liq gaplar tuzish.",
-        rules: "Mubtada odatda ma'rifa (aniq), Xabar esa nakira (noaniq) bo'lib, ikkalasi ham marfu' (bosh kelishikda) bo'ladi."
+        title: "5-dars: Sifatlar va tavsiflar",
+        summary: "Katta, kichik, yangi, eski kabi sifatlar va ularning qo'llanilishi.",
+        rules: "Sifat va ot moslashuvi."
       }
     ];
+  }
+
+  /**
+   * Kitob matnidan aynan berilgan dars raqami (masalan 1-dars) matnini ajratib olish
+   */
+  public static extractLessonText(bookText?: string, lessonNumber: number = 1): string {
+    if (!bookText || !bookText.trim()) return '';
+
+    const text = bookText;
+    const lessonRegex = /الدَّرْس[\s\S]{1,25}?(?=\n|$)/g;
+    const matches: Array<{ index: number; title: string }> = [];
+    let m;
+    while ((m = lessonRegex.exec(text)) !== null) {
+      matches.push({ index: m.index, title: m[0].trim().replace(/\s+/g, ' ') });
+    }
+
+    if (matches.length > 0) {
+      const idx = Math.max(0, Math.min(lessonNumber - 1, matches.length - 1));
+      const start = matches[idx].index;
+      const end = matches[idx + 1] ? matches[idx + 1].index : Math.min(text.length, start + 3500);
+      return text.slice(start, end).trim();
+    }
+
+    const chunkSize = 3000;
+    const start = Math.max(0, (lessonNumber - 1) * chunkSize);
+    return text.slice(start, start + chunkSize).trim();
+  }
+
+  /**
+   * 1-darsdan to maxLesson darsigacha bo'lgan barcha matn va lug'atlarni olish (test tuzish uchun)
+   */
+  public static extractLessonsUpTo(bookText?: string, maxLesson: number = 1): string {
+    if (!bookText || !bookText.trim()) return '';
+
+    const text = bookText;
+    const lessonRegex = /الدَّرْس[\s\S]{1,25}?(?=\n|$)/g;
+    const matches: Array<{ index: number; title: string }> = [];
+    let m;
+    while ((m = lessonRegex.exec(text)) !== null) {
+      matches.push({ index: m.index, title: m[0].trim().replace(/\s+/g, ' ') });
+    }
+
+    if (matches.length > 0) {
+      const start = matches[0].index;
+      const endIdx = Math.min(maxLesson, matches.length);
+      const end = matches[endIdx] ? matches[endIdx].index : text.length;
+      return text.slice(start, Math.min(start + 18000, end)).trim();
+    }
+
+    return text.slice(0, Math.min(text.length, maxLesson * 3000));
   }
 }

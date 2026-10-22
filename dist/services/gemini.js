@@ -215,12 +215,12 @@ Javobni FAQAT toza JSON massiv ko'rinishida qaytaring:
      * - Har bir guruhda "Kitob bog'lash" imkoniyati: kitob nomi berilsa, shu kitob asosida dars o'tadi
      * - Javoblar na juda uzun, na juda qisqa (o'rtacha, tushunarli)
      */
-    static async askArabicTutor(question, lang = 'uz', bookName) {
+    static async askArabicTutor(question, lang = 'uz', bookName, currentTopicTitle) {
         const apiKeys = this.getApiKeys();
         if (apiKeys.length === 0) {
             return lang === 'ru'
-                ? "Извините, сервис ИИ временно недоступен. Пожалуйста, обратитесь к администратору."
-                : "Kechirasiz, Gemini AI xizmati sozlamalari yangilanmoqda. Iltimos, administratorga murojaat qiling.";
+                ? "Извините, сервис временно недоступен. Пожалуйста, обратитесь к администратору."
+                : "Kechirasiz, xizmat sozlamalari yangilanmoqda. Iltimos, administratorga murojaat qiling.";
         }
         const candidateModels = [
             'gemini-3.5-flash-lite',
@@ -230,27 +230,26 @@ Javobni FAQAT toza JSON massiv ko'rinishida qaytaring:
             'gemini-2.5-pro',
         ];
         const langInstruction = lang === 'ru'
-            ? "Отвечай вежливо и понятно на русском языке, арабские слова обязательно приводи с огласовками (харакатами) и переводом."
+            ? "Отвечай вежливо и понятно на русском языке, арабские слова приводи с огласовками (харакатами) и переводом."
             : lang === 'en'
                 ? "Answer politely and clearly in English, provide Arabic words with full vocalization (harakat) and translations."
-                : "Javobni samimiy, tushunarli va toza o'zbek tilida ber. Arabcha so'z va misollarni albatta arab yozuvida to'liq harakatlari (fatha, kasra, damma, tanvin, sukun) bilan keltir va o'zbekcha ma'nosini tushuntir.";
-        let bookInstruction = '';
-        if (bookName && bookName.trim()) {
-            bookInstruction = `\n📖 MAXSUS TA'LIM DASTURI:
-Dars tushuntirishlarini, grammatika va lug'at qoidalarini, savol-javoblarni va barcha misollarni aynan "${bookName.trim()}" darsligi uslubi, darslar ketma-ketligi va mavzulari asosida o'rgating va tushuntiring.
-MUHIM YASHIRINLIK QOIDASI: O'quvchiga ta'lim berayotgan kitobingiz nomini ("${bookName.trim()}") yoki muallifini HECH QACHON aytmang! Bu ma'lumot mutlaqo yashirin. Agar o'quvchi kitob nomini so'rasa ham: "Biz siz bilan maxsus tizimli arab tili o'quv dasturi asosida o'rganmoqdamiz" deb muloyim javob bering.`;
-        }
-        const systemPrompt = `Siz malakali, professional Arab tili ustozi va AI murabbiysiz.
-${bookInstruction}
+                : "Javobni samimiy, tushunarli va toza o'zbek tilida ber. Arabcha so'z va misollarni arab yozuvida to'liq harakatlari bilan keltir.";
+        const currentTopicPrompt = currentTopicTitle ? `Joriy dars mavzusi: "${currentTopicTitle}".` : '';
+        const systemPrompt = `Siz faqat "AI Ustoz"siz. Hech qachon o'zingizni "Gemini" yoki texnologik AI deb tanitmang. Sizning yagona nomingiz: "AI Ustoz".
+Kitob nomi va muallifi o'quvchiga MUTLAQO SIR!
+${currentTopicPrompt}
 
-QAT'IY QOIDALAR VA CHEGARALAR:
-1. CHEGARADAN CHIQMASLIK (QAT'IY): Siz FAQAT VA FAQAT Arab tili ta'limi (arab alifbosi, harflar, maxrajlar, tovushlar, o'qish, yozish, harakatlar, lug'at, sarf va nahv grammatikasi, e'rob, arabcha gaplar tahlili va o'zbekcha-arabcha tarjima) bo'yicha javob berasiz.
-2. AGAR SAVOL ARAB TILI TA'LIMIDAN CHETDA BO'LSA (siyosat, sport, erkin suhbat, boshqa fanlar, dasturlash va boshqa mavzular): Qat'iyan mavzudan chetga chiqmang! Juda xushmuomalalik bilan: "Kechirasiz, men faqat arab tili ta'limi bo'yicha maxsus ustozman. Iltimos, arab tili grammatikasi, so'zlar yoki darslar bo'yicha savolingizni bering" deb yo'naltiring.
-3. OHANG VA USLUB: Sovuq robot yoki "AI" kabi emas, real, iliq, samimiy, o'quvchini qo'llab-quvvatlovchi va dalda beruvchi haqiqiy ustoz kabi gapiring.
-4. JAVOB HAJMI: Javoblaringiz NA JUDA UZUN (zeriktiradigan cho'zma matn emas), NA JUDA QISQA (chala yoki tushunarsiz emas) — aniq, o'rtacha hajmda, chiroyli va o'quvchiga tushunarli bo'lsin.
-5. MULOQOT TILI VA YOZUV: ${langInstruction}
+QAT'IY QOIDALAR:
+1. SOHAGA VA DARS MAVZUSIGA CHEKLANISH: Siz FAQAT darslikdagi arab tili darsi mavzusi bo'yicha tushuntirasiz.
+2. BEGONA SAVOLLARGA JAVOB BERMASLIK (QAT'IY):
+Agar o'quvchi dars mavzusiga kirmaydigan har qanday begona savol bersa (boshqa fanlar, dunyoviy erkin suhbat, yoki hatto kitobdagi joriy mavzuga kirmaydigan boshqa begona tushunchalar haqida so'rasa), QAT'IYAN BOSHQA MAVZULARGA CHALG'IMANG!
+Aniq shunday javob bering:
+"Bu dars mavzusiga kirmaydi. Keling, joriy darsimizga qaytamiz${currentTopicTitle ? `: ${currentTopicTitle}` : ''}. Ushbu mavzu bo'yicha qanday savolingiz bor?"
+3. Kitobda bo'lmagan atama, qoida yoki tushunchalarni (masalan maxraj yoki tashqi murakkab qoidalar kitobda yo'q bo'lsa) mutlaqo tilga olmang!
+4. Ohang: Jonli, samimiy, iliq, o'quvchini qo'llab-quvvatlovchi haqiqiy ustoz.
+5. Muloqot tili: ${langInstruction}
 
-O'quvchining savoli / murojaati:
+O'quvchining murojaati:
 ${question}`;
         for (let keyIdx = 0; keyIdx < apiKeys.length; keyIdx++) {
             const activeKey = apiKeys[keyIdx];
@@ -275,36 +274,48 @@ ${question}`;
     }
     /**
      * AI Ustoz — Ketma-ket dars tushuntirish va mavzu bo'yicha 1 ta tekshiruv savolini berish
-     * Sovuq emas, real, iliq, qo'llab-quvvatlovchi ustoz ohangida
+     * TALAB:
+     * - Har bir guruhga yuklangan PDF darslikdan 1-mavzudan boshlab ketma-ket dars o'tiladi.
+     * - Dars matni, tushuntirish va savollar FAQAT o'sha kitob ichidagi ma'lumotdan olinadi.
+     * - Kitobda bo'lmagan atama, qoida yoki tushuncha (masalan maxraj va h.k.) darsda mutlaqo tilga olinmaydi.
+     * - Nomi: "AI Ustoz", Gemini nomi yoki kitob nomi mutlaqo sir saqlanadi.
+     * - Har mavzudan keyin bitta savol beriladi.
      */
-    static async teachTopicLesson(topic, studentName, bookName, lang = 'uz') {
+    static async teachTopicLesson(topic, studentName, lang = 'uz', bookExcerpt) {
         const apiKeys = this.getApiKeys();
         const defaultRes = {
-            lessonText: `Assalomu alaykum, ${studentName}! Bugun siz bilan <b>${topic.title}</b> mavzusini o'rganamiz.\n\n` +
+            lessonText: `Assalomu alaykum, ${studentName}! Bugun siz bilan <b>${topic.title}</b> darsini o'rganamiz.\n\n` +
                 `📖 <b>Mavzu mazmuni:</b>\n${topic.summary}\n\n` +
-                `📌 <b>Asosiy qoidalar:</b>\n${topic.rules}\n\n` +
-                `Arab tilini o'rganishdagi tirishqoqligingiz tahsinga sazovor! Ushbu qoidalarni diqqat bilan o'qib chiqing.`,
-            question: `Ushbu mavzuni qanday tushunganingizni bilish uchun savol: ${topic.title} darsining asosiy qoidasini o'z so'zlaringiz bilan qisqacha tushuntirib bering.`
+                `📌 <b>Qoidalar:</b>\n${topic.rules}\n\n` +
+                `Ushbu qoidalarni diqqat bilan o'qib chiqing va tushunib oling.`,
+            question: `Ushbu mavzuni qanday tushunganingizni bilish uchun savol: ${topic.title} darsining asosiy qoidasini qisqacha tushuntirib bering.`
         };
         if (apiKeys.length === 0)
             return defaultRes;
-        const prompt = `Siz mehribon, samimiy, o'quvchini ruxlantiruvchi va chuqur bilimli Arab tili ustozi ekansiz.
+        const bookContentPart = bookExcerpt && bookExcerpt.trim()
+            ? `\nKitobdagi aynan shu darsga oid matn:\n"""${bookExcerpt.slice(0, 5000)}"""\n`
+            : '';
+        const prompt = `Siz "AI Ustoz"siz. Nom: faqat "AI Ustoz". Hech qachon Gemini yoki o'zingizni AI texnologiyasi deb aytmang.
+Kitob nomi yoki muallifi o'quvchiga MUTLAQO SIR!
 O'quvchi ismi: ${studentName}.
-Siz bugun o'quvchiga darslikning ${topic.number}-mavzusini o'rgatishingiz kerak.
-Mavzu: "${topic.title}".
-Mavzu mazmuni: "${topic.summary}".
-Qoidalar: "${topic.rules}".
+Siz bugun o'quvchiga guruh darsligining ${topic.number}-mavzusini 1-darsdan boshlab samimiy va iliq o'rgatishingiz kerak.
+Mavzu nomi: "${topic.title}".
+${bookContentPart}
 
-MUHIM TALABLAR:
-1. Ohang: Sovuq "AI" kabi emas, haqiqiy, iliq, qo'llab-quvvatlovchi jonli ustoz kabi gapiring.
-2. Dars tushuntirishi: Tushunarli, aniq, arabcha misollarni to'liq harakatlari bilan (fatha, kasra, damma va h.k.) keltiring.
-3. Kitob nomini o'quvchiga ASLO aytmang (kitob nomi sir).
-4. Dars yakunida o'quvchining ushbu mavzuni tushunganini tekshirish uchun aynan shu mavzuga oid 1 TA ANIQ SAVOL bering.
+ENG QAT'IY TALABLAR (BUZISH QAT'IYAN TAQIQLANADI):
+1. FAQAT BERILGAN DARSLIK MATNIDAGI MA'LUMOTDAN FOYDALANING:
+   - Darslikdagi yangi arabcha so'zlarni va ularning ma'nolarini (lug'atini) o'quvchiga chiroyli, tushunarli qilib o'rgating.
+   - Darsdagi qisqa iboralar va gaplarni (masalan: Bu kitob, Qalam qayerda?) tushuntiring.
+   - Matnda bo'lmagan HECH QANDAY qoida, mavhum atama (harakat, e'rob, maxraj) yoki darsdan tashqari narsalarni qo'shmang!
+2. Ohang: Haqiqiy, iliq, mehribon, samimiy jonli ustoz ohangida gapiring.
+3. Dars yakunida o'quvchiga darslikdagi so'zlar yoki mashqlardan FAQAT 1 TA AMALIY SAVOL bering:
+   - Masalan: "«...» so'zining ma'nosi nima?" yoki "«...» jumlasini arab tiliga tarjima qiling".
+   - Quruq qoida yoki harakatlar haqida savol bermang!
 
 Javobni FAQAT toza JSON formatida quyidagicha qaytaring:
 {
-  "lessonText": "Ustozning samimiy dars tushuntirishi matni (HTML formatida: <b>, <i>, harakatli arabcha so'zlar bilan)",
-  "question": "Mavzu bo'yicha beriladigan 1 ta tekshiruv savoli"
+  "lessonText": "AI Ustozning samimiy dars tushuntirishi (HTML teglari <b>, <i>, harakatli arabcha so'zlar bilan)",
+  "question": "Mavzu bo'yicha beriladigan 1 ta amaliy tekshiruv savoli"
 }`;
         for (const key of apiKeys) {
             try {
@@ -446,30 +457,41 @@ Javobni FAQAT toza JSON ko'rinishida qaytaring:
             ? `Belgilangan mavzular: ${options.topicsRange}`
             : "Barcha asosiy o'quv mavzulari";
         const excerpt = (options.bookText || '').slice(0, 12000);
-        const prompt = `Siz qattiqqo'l, professional Arab tili imtihonchisisiz.
-Quyidagi darslik va mavzular asosida AYNAN ${count} TA JUDA QIYIN, chuqur bilimni talab qiluvchi ko'p variantli (multiple-choice) test savolini tuzing.
-
+        let excludedPrompt = '';
+        if (options.excludedQuestions && options.excludedQuestions.length > 0) {
+            excludedPrompt = `\n⚠️ SAVOLLAR TAKRORLANMASIN (QAT'IY):\nO'quvchi ilgari to'g'ri yechgan quyidagi savollarni (yoki ularning ma'nodosh nusxasini) MUTLAQO QAYTA BERMANG:\n` +
+                options.excludedQuestions.slice(0, 30).map((q, i) => `${i + 1}. "${q}"`).join('\n') + `\nMutlaqo yangi savollar tuzing!`;
+        }
+        const prompt = `Siz malakali Arab tili imtihonchisisiz.
+Quyida guruh darsligidagi o'quvchi o'rgangan darslar matni, lug'atlari va mashqlari berilgan:
 ${topicsStr}
-Savol turlari: ${typesStr}
 Kitob matnidan parcha:
-${excerpt || '(Standart arab tili darsligi qoidalari)'}
+"""
+${excerpt || '(Darslik matni va lug\'atlari)'}
+"""
+${excludedPrompt}
 
-JUDA MUHIM QAT'IY MANTIQIY QOIDA:
-1. Savollar FAQAT va FAQAT belgilangan mavzular doirasidan tuzilishi SHART.
-2. AGAR MAVZU MASALAN "BITTA SO'ZNING O'QILISHI / TALAFFUZI" HAQIDA BO'LSA, SAVOL O'SHA SO'ZNING O'ZIGA OID NOZIK TALAFFUZ VA MAXRAJ DETALLARI BILAN MURAKKABLASHTIRILSIN.
-3. LEKIN MAVZUDA BO'LMAGAN BEGONA GRAMMATIK TUSHUNCHALARNI (masalan fe'l, sifat, kelishiklar, agar mavzuda bo'lmasa) MUTLAQO QO'SHMANG! FAQAT MAVJUD MAZMUNNI CHUQURLASHTIRING!
-4. Har bir savolda AYNAN 4 TA unikal variant bo'lsin.
-5. Har bir savolga to'liq, ilmiy va qat'iy "explanation" (nima uchun aynan shu javob to'g'ri ekanligi) yozing.
+ENG QAT'IY TALABLAR (BUZISH QAT'IYAN TAQIQLANADI):
+1. Savollar FAQAT va FAQAT yuqoridagi darslik matnida mavjud bo'lgan so'zlar, mashqlar va jumlalardan tuzilsin!
+2. SAVOL TURLARI FAQAT AMALIY BO'LSIN:
+   - Darslikdagi so'zlar tarjimasi: "«...» so'zining to'g'ri tarjimasi nima?", "«...» so'zi arab tilida qanday bo'ladi?"
+   - Kitob ichidagi mashqlar va gaplar tarjimasi: "«...» jumlasining to'g'ri tarjimasini toping."
+   - Darslikdagi jumlalarni to'ldirish yoki ma'nosini topish.
+3. MUTLAQO TAQIQLANADI:
+   - "Buning harakati qanday?", "Qaysi qoida?", "E'robi nima?", maxraj yoki mavhum grammatik nazariyalar haqida savol tuzish MUTLAQO TAQIQLANADI!
+   - Faqat va faqat darslikdagi so'zlar boyligi va matn tarjimalari bo'lsin!
+4. Har bir savolda AYNAN 4 TA unikal variant bo'lsin. Noto'g'ri variantlar ham darslikdagi boshqa so'zlardan olingan bo'lsin.
+5. Har bir savolga to'liq, tushunarli "explanation" (to'g'ri javob tarjimasi va izohi) yozing.
 6. "correctIndex" 0, 1, 2 yoki 3 bo'lsin.
 
 Javobni FAQAT toza JSON massiv formatida qaytaring:
 [
   {
-    "question": "Murakkab savol matni",
+    "question": "«...» so'zining to'g'ri tarjimasi qaysi?",
     "options": ["Variant 1", "Variant 2", "Variant 3", "Variant 4"],
     "correctIndex": 0,
-    "explanation": "To'liq ilmiy tushuntirish",
-    "topic": "Mavzu nomi"
+    "explanation": "To'liq tushuntirish va tarjima",
+    "topic": "So'zlar va mashqlar"
   }
 ]`;
         for (const key of apiKeys) {
@@ -668,39 +690,39 @@ ${JSON.stringify(payload, null, 2)}`;
         // Default: O'zbek tili
         return [
             {
-                question: "Arab alifbosida jami nechta harf bor?",
-                options: ["26 ta", "28 ta", "30 ta", "32 ta"],
-                correctIndex: 1,
-                explanation: "Arab alifbosida 28 ta asosiy harf mavjud.",
-                topic: "Alifbo va harflar"
-            },
-            {
-                question: "Arab tili qaysi tomondan yoziladi va o'qiladi?",
-                options: ["Chapdan o'ngga", "O'ngdan chapga", "Tepadan pastga", "Farqi yo'q"],
-                correctIndex: 1,
-                explanation: "Arab yozuvi qat'iy ravishda o'ngdan chapga qarab yoziladi va o'qiladi.",
-                topic: "Alifbo va yozuv"
-            },
-            {
-                question: "Harf ustidagi 'Fatha' (َ ) harakati qaysi tovushni beradi?",
-                options: ["Qisqa [i] tovushi", "Qisqa [u] tovushi", "Qisqa [a] yoki [o] tovushi", "Suziq [aa] tovushi"],
+                question: "«كِتَابٌ» (Kitaabun) so'zining to'g'ri tarjimasi qaysi?",
+                options: ["Qalam", "Daftar", "Kitob", "Chizg'ich"],
                 correctIndex: 2,
-                explanation: "Fatha harakati o'zbek tilidagi qisqa [a] (yo'g'on harflarda [o]) tovushini beradi.",
-                topic: "Harakatlar"
+                explanation: "«كِتَابٌ» arabchadan tarjima qilinganda «Kitob» degan ma'noni bildiradi.",
+                topic: "1-dars lug'ati"
             },
             {
-                question: "'كِتَابٌ' (Kitaabun) so'zining ma'nosi nima?",
-                options: ["Qalam", "Daftar", "Kitob", "Maktab"],
-                correctIndex: 2,
-                explanation: "'Kitob' so'zi o'zbek tiliga arab tilidan kirib kelgan bo'lib, 'كِتَابٌ' kitob deganidir.",
-                topic: "Lug'at va so'z boyligi"
+                question: "«قَلَمٌ» (Qalamun) so'zining o'zbekcha ma'nosi nima?",
+                options: ["Qalam", "Doska", "Siyohdon", "Qog'oz"],
+                correctIndex: 0,
+                explanation: "«قَلَمٌ» so'zi «Qalam» deb tarjima qilinadi.",
+                topic: "1-dars lug'ati"
             },
             {
-                question: "Arab tilida gap tuzilishi va e'rob qoidalarini o'rganuvchi fan qaysi?",
-                options: ["Sarf (Morfologiya)", "Nahv (Sintaksis)", "Tajvid", "Lug'at"],
+                question: "«دَفْتَرٌ» (Daftarun) so'zi qanday tarjima qilinadi?",
+                options: ["Kitob", "Daftar", "Parta", "Sinf"],
                 correctIndex: 1,
-                explanation: "Nahv ilmi so'zlarning gapdagi o'rni va oxirgi harakatlarini (e'rob) o'rgatadi.",
-                topic: "Grammatika (Nahv va Sarf)"
+                explanation: "«دَفْتَرٌ» arab tilida «Daftar» degani.",
+                topic: "1-dars lug'ati"
+            },
+            {
+                question: "«مِسْطَرَةٌ» (Mistarotun) so'zining tarjimasi qaysi?",
+                options: ["Qog'oz", "Siyohdon", "Chizg'ich", "Doska"],
+                correctIndex: 2,
+                explanation: "«مِسْطَرَةٌ» so'zi «Chizg'ich» ma'nosini anglatadi.",
+                topic: "1-dars lug'ati"
+            },
+            {
+                question: "«أَيْنَ الْقَلَمُ؟» jumlasining to'g'ri tarjimasi nima?",
+                options: ["Bu qalam", "Qalam qayerda?", "Qalamni ber", "Qalamni ol"],
+                correctIndex: 1,
+                explanation: "«أَيْنَ» — qayerda?, «الْقَلَمُ» — qalam. Jumla: «Qalam qayerda?» degani.",
+                topic: "1-dars mashqlari"
             }
         ];
     }

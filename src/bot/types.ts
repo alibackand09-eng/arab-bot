@@ -13,7 +13,7 @@ export interface QuizAttemptRecord {
 }
 
 export interface UserSessionState {
-  state?: 'idle' | 'waiting_group_code' | 'taking_test' | 'waiting_admin_password' | 'chatting_with_gemini' | 'chatting_with_ai_tutor';
+  state?: 'idle' | 'waiting_group_code' | 'waiting_group_access_code' | 'taking_test' | 'waiting_admin_password' | 'chatting_with_gemini' | 'chatting_with_ai_tutor';
   selectedGroupId?: number;
   selectedStudentId?: number;
   isAdmin?: boolean;

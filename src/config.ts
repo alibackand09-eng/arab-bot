@@ -15,11 +15,19 @@ export interface AppConfig {
   geminiApiKey2: string;
   adminPassword: string;
   adminId: string;
+  adminTelegramContact: string;
+  academyApiUrl: string;
+  academyAdminUrl: string;
+  academySyncSecret: string;
 }
 
 function parseAdminId(): string {
-  const raw = (process.env.ADMIN_ID || '8145529224').trim().replace(/^@/, '');
+  const raw = (process.env.ADMIN_ID || process.env.ADMIN_TELEGRAM_CONTACT || '8145529224').trim().replace(/^@/, '');
   return raw;
+}
+
+function parseAdminTelegramContact(): string {
+  return (process.env.ADMIN_TELEGRAM_CONTACT || process.env.ADMIN_ID || '@aishauzbikiyya_admin').trim();
 }
 
 export const config: AppConfig = {
@@ -32,6 +40,10 @@ export const config: AppConfig = {
   geminiApiKey2: (process.env.GEMINI_API_KEY_2 || '').trim(),
   adminPassword: (process.env.ADMIN_PASSWORD || '123').trim(),
   adminId: parseAdminId(),
+  adminTelegramContact: parseAdminTelegramContact(),
+  academyApiUrl: (process.env.ACADEMY_API_URL || '').trim(),
+  academyAdminUrl: (process.env.ACADEMY_ADMIN_URL || '').trim(),
+  academySyncSecret: (process.env.ACADEMY_SYNC_SECRET || '').trim(),
 };
 
 export function reloadConfig(): AppConfig {
@@ -51,5 +63,9 @@ export function reloadConfig(): AppConfig {
   config.geminiApiKey2 = (process.env.GEMINI_API_KEY_2 || '').trim();
   config.adminPassword = (process.env.ADMIN_PASSWORD || '123').trim();
   config.adminId = parseAdminId();
+  config.adminTelegramContact = parseAdminTelegramContact();
+  config.academyApiUrl = (process.env.ACADEMY_API_URL || '').trim();
+  config.academyAdminUrl = (process.env.ACADEMY_ADMIN_URL || '').trim();
+  config.academySyncSecret = (process.env.ACADEMY_SYNC_SECRET || '').trim();
   return config;
 }

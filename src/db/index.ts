@@ -30,9 +30,11 @@ class DatabaseManager {
     if (config.databaseUrl) {
       try {
         console.log('[DB] PostgreSQL bazasiga ulanish tekshirilmoqda...');
+        const isSsl = config.databaseUrl.includes('sslmode=') || config.databaseUrl.includes('neon.tech') || (!config.databaseUrl.includes('localhost') && !config.databaseUrl.includes('127.0.0.1'));
         const pool = new Pool({
           connectionString: config.databaseUrl,
-          connectionTimeoutMillis: 3000,
+          connectionTimeoutMillis: 10000,
+          ssl: isSsl ? { rejectUnauthorized: false } : undefined,
         });
 
         // Test so'rov
