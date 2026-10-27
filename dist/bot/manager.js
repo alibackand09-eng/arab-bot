@@ -34,20 +34,17 @@ class BotManager {
     }
     /**
      * Admin bilan to'g'ridan-to'g'ri Telegram shaxsiy chatiga o'tish havolasi
-     * Faqat bitta ADMIN_ID ishlatiladi!
+     * ADMIN_TELEGRAM_CONTACT yoki ADMIN_ID ishlatiladi
      */
     getAdminTelegramUrl(prefilledText) {
-        const adminId = (config_js_1.config.adminTelegramContact || config_js_1.config.adminId || '8145529224').trim().replace(/^@/, '');
-        if (/^https?:\/\//i.test(adminId))
-            return adminId;
-        // Agar raqam bo'lsa (masalan 8145529224) - Telegram chatini to'g'ridan-to'g'ri ochadi
-        if (/^\d+$/.test(adminId)) {
-            return `tg://user?id=${adminId}`;
+        const contact = (config_js_1.config.adminTelegramContact || config_js_1.config.adminId || '8145529224').trim().replace(/^@/, '');
+        if (/^\d+$/.test(contact)) {
+            return `tg://user?id=${contact}`;
         }
         if (prefilledText) {
-            return `https://t.me/${adminId}?text=${encodeURIComponent(prefilledText)}`;
+            return `https://t.me/${contact}?text=${encodeURIComponent(prefilledText)}`;
         }
-        return `https://t.me/${adminId}`;
+        return `https://t.me/${contact}`;
     }
     async getStatus() {
         const hasToken = Boolean(config_js_1.config.botToken && config_js_1.config.botToken.trim().length > 0);
@@ -817,17 +814,6 @@ class BotManager {
        WHERE u.telegram_id = $1
        GROUP BY u.id, u.telegram_id, u.first_name, u.username, u.joined_group_id, g.name`, [telegramId]);
         const currentUser = userRes.rows[0];
-<<<<<<< HEAD
-        if (!currentUser || !currentUser.joined_group_id) {
-            await ctx.reply(lang === 'ru'
-                ? "Вы еще не прикреплены к группе. Пожалуйста, введите код группы."
-                : "Siz hali guruhga biriktirilmagansiz. Iltimos, avval guruh kodini kiriting.");
-            return;
-        }
-        const groupId = currentUser.joined_group_id;
-        const groupName = currentUser.group_name || "Guruh";
-        // 2. O'quvchilar ro'yxati — FAQAT shu o'quvchining guruhi bo'yicha (Talab 6)
-=======
         let academyStats;
         let academyStatsError = false;
         if (config_js_1.config.academyApiUrl && config_js_1.config.academySyncSecret) {
@@ -839,8 +825,15 @@ class BotManager {
                 console.warn('[Academy Sync] Sayt o‘quvchi statistikasini olib bo‘lmadi:', error.message);
             }
         }
-        // 2. O'quvchilar ro'yxati (Barcha guruhlar bo'yicha opshe ballarga qarab saralash)
->>>>>>> 07fdc2e58bb854a8546a4074ba62abe31462e601
+        if (!currentUser || !currentUser.joined_group_id) {
+            await ctx.reply(lang === 'ru'
+                ? "Вы еще не прикреплены к группе. Пожалуйста, введите код группы."
+                : "Siz hali guruhga biriktirilmagansiz. Iltimos, avval guruh kodini kiriting.");
+            return;
+        }
+        const groupId = currentUser.joined_group_id;
+        const groupName = currentUser.group_name || "Guruh";
+        // 2. O'quvchilar ro'yxati — FAQAT shu o'quvchining guruhi bo'yicha (Talab 6)
         const rankingRes = await index_js_1.db.query(`SELECT u.id, u.telegram_id, u.first_name, u.username,
         COALESCE(SUM(sg.grade), 0) as total_score,
         COUNT(sg.id) as grades_count

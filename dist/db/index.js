@@ -31,9 +31,11 @@ class DatabaseManager {
         if (config_js_1.config.databaseUrl) {
             try {
                 console.log('[DB] PostgreSQL bazasiga ulanish tekshirilmoqda...');
+                const isSsl = config_js_1.config.databaseUrl.includes('sslmode=') || config_js_1.config.databaseUrl.includes('neon.tech') || (!config_js_1.config.databaseUrl.includes('localhost') && !config_js_1.config.databaseUrl.includes('127.0.0.1'));
                 const pool = new pg_1.Pool({
                     connectionString: config_js_1.config.databaseUrl,
-                    connectionTimeoutMillis: 3000,
+                    connectionTimeoutMillis: 10000,
+                    ssl: isSsl ? { rejectUnauthorized: false } : undefined,
                 });
                 // Test so'rov
                 const client = await pool.connect();
